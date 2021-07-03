@@ -47,15 +47,15 @@ class _TableSection():
 class WH_AnalysisTableSection(_TableSection):
 
     # create some text for the totals on the contents page
-    contents_text = ''
-    contents_dict = {}
+    # contents_text = ''
+    # contents_dict = {}
     part_dur = timedelta(seconds=0)
     table_num_dur = {}
 
-    @classmethod
-    def output_contents(cls, file_path: str):
-        with open(file_path, 'w') as f:
-            f.write(cls.contents_text)
+    # @classmethod
+    # def output_contents(cls, file_path: str):
+    #     with open(file_path, 'w') as f:
+    #         f.write(cls.contents_text)
 
     def __init__(self, title: str, excell_sheet_title: str, table_num: int):
         super().__init__(title)
@@ -85,9 +85,9 @@ class WH_AnalysisTableSection(_TableSection):
     def add_to(self, table):
         super().add_to(table)
         table.add_total_duration(self.duration)
-        WH_AnalysisTableSection.contents_text += (f'{self.title}\t'
-                                                  f'{format_timedelta(self.duration)}\n')
-        WH_AnalysisTableSection.contents_dict[self.title] = self.duration
+        # WH_AnalysisTableSection.contents_text += (f'{self.title}\t'
+        #                                           f'{format_timedelta(self.duration)}\n')
+        # WH_AnalysisTableSection.contents_dict[self.title] = self.duration
 
         # excel stuff
         if self.excel_sheet:
@@ -123,7 +123,7 @@ class WH_AnalysisTableSection(_TableSection):
 class CH_AnalysisTableSection(WH_AnalysisTableSection):
 
     # create some text for the totals on the contents page
-    contents_text = ''
+    # contents_text = ''
     part_aat = timedelta(seconds=0)
     table_num_aat = {}
 

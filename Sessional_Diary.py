@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import argparse
 # from copy import deepcopy
 from datetime import date, datetime, timedelta, time
@@ -41,10 +42,8 @@ from package.utilities import AID, AID5
 from package.utilities import NS_MAP
 
 
-
 # override default openpyxl timedelta (duration) format
 CELL.TIME_FORMATS[timedelta] = '[h].mm'
-
 
 
 DATE_NUM_LOOK_UP: dict[datetime, int] = {}
@@ -56,7 +55,7 @@ DATE_NUM_LOOK_UP: dict[datetime, int] = {}
 
 class Sessional_Diary:
 
-    def __init__(self, input_excel_file_path: str, no_excel:bool):
+    def __init__(self, input_excel_file_path: str, no_excel: bool):
         self.input_workbook = load_workbook(filename=input_excel_file_path,
                                             data_only=True, read_only=True)
 
@@ -442,8 +441,11 @@ class Sessional_Diary:
                 if col_subject == 'lords amendments':
                     # gove bill lords amendments
                     t_sections['gov_bill_lord_amend'].add_row(*fullrow)
-                gov_bill_other_subs = 'second and third reading', 'money resolution', 'lords amendments'
-                if ('legislative grand committee' in col_subject or col_subject in gov_bill_other_subs):
+                gov_bill_other_subs = ('second and third reading',
+                                       'money resolution',
+                                       'lords amendments')
+                if ('legislative grand committee' in col_subject
+                        or col_subject in gov_bill_other_subs):
                     t_sections['gov_bill_other'].add_row(*fullrow)
 
             if (col_subject == 'second reading'
@@ -573,9 +575,21 @@ class Sessional_Diary:
                 # if table_section.duration > timedelta(seconds=0)
                 # or table_section.after_appointed_time > timedelta(seconds=0):
                 table_num = table_section.table_num
+                table_num_dur_formatted = format_timedelta(
+                    CH_AnalysisTableSection.table_num_dur.get(table_num, timedelta()))
+                table_num_aat_formatted = format_timedelta(
+                    CH_AnalysisTableSection.table_num_aat.get(table_num, timedelta()))
                 text += (f'\n\t{table_num}'
-                         f'\t{format_timedelta(CH_AnalysisTableSection.table_num_dur.get(table_num, timedelta()))}'
-                         f'\t{format_timedelta(CH_AnalysisTableSection.table_num_aat.get(table_num, timedelta()))}')
+                         f'\t{table_num_dur_formatted}'
+                         f'\t{table_num_aat_formatted}')
+            else:
+                try:
+                    title_number = table_section.title.split(":\t")[0]
+                except Exception:
+                    title_number = table_section.title
+                formatted_dur = format_timedelta(table_section.duration)
+                formatted_aat = format_timedelta(table_section.after_appointed_time)
+                text += f'\n\t{title_number}\t{formatted_dur}\t{formatted_aat}'
         print(text)
 
     def wh_diary(self):
@@ -589,9 +603,6 @@ class Sessional_Diary:
                   ' not be put in the westminstar hall table. The square brackets will'
                   ' instead be left blank.')
 
-        # wb = load_workbook(filename='WH_data_only.xlsx',
-        #                    data_only=True, read_only=True)
-        # main_data = self.input_workbook['Main data']
         wh_data = cast(Worksheet, self.input_workbook['Westminster Hall'])
 
         # output = []
@@ -600,7 +611,8 @@ class Sessional_Diary:
 
         table_sections = []
 
-        # create an element to be used for subheadings as its contents must be built up in several loops
+        # create an element to be used for subheadings as
+        # its contents must be built up in several loops
         # subheading = None
         reaquire_date = False
 
@@ -658,7 +670,8 @@ class Sessional_Diary:
 
                 # if avaliable we will get the day number of the chamber for this date
                 chamber_daynum = DATE_NUM_LOOK_UP.get(row_values[1], '')
-                # actually we will calculate the day number rarther than getting the number from excel
+                # actually we will calculate the day number
+                # rarther than getting the number from excel
                 day_number_counter += 1
 
                 tbl_sec_title_without_date = f'{day_number_counter}.\u2002[{chamber_daynum}] '
@@ -713,7 +726,7 @@ class Sessional_Diary:
                              table_class=WH_Table)
 
         # can now use dict (rarther than ordered dict) as order is guarenteed
-        table_sections = {
+        t_sections = {
             # the order matters!
             'private': WH_AnalysisTableSection(
                 '1a:\tPrivate Members’ Debates',
@@ -788,14 +801,12 @@ class Sessional_Diary:
                     row_values[i] = value.strftime('%H.%M')
 
 
-
             if not isinstance(row_values[1], datetime):
                 print(f'Error in row {c}, expected datetime but got, {row_values[0]}')
             elif not isinstance(row_values[3], str):
                 print(f'Error in row {c}, expected str but got, {row_values[3]}')
             else:
                 forematted_date = format_date(row_values[1])
-
 
                 # cells = [forematted_date, row_values[4], row_values[7]]
                 col_3_val = row_values[3].strip()
@@ -812,43 +823,72 @@ class Sessional_Diary:
                 ]
                 fullrow = [cells_vals, duration]
                 if col_3_val in ('Debate (Private Member’s)', 'Debate (Private Member\'s)'):
-                    table_sections['private'].add_row(*fullrow)
-                elif col_3_val in ('Debate (BBCom recommended)', 'Debate (BBCom)', 'Debate (BBBCom)'):
-                    table_sections['bbcom'].add_row(*fullrow)
+                    t_sections['private'].add_row(*fullrow)
+                elif col_3_val in ('Debate (BBCom recommended)',
+                                   'Debate (BBCom)', 'Debate (BBBCom)'):
+                    t_sections['bbcom'].add_row(*fullrow)
                     # bbcom_duration += duration
                     # bbcom_cells.extend(cells)
                 elif col_3_val in ('Debate (Liaison Committee)', ):
-                    table_sections['liaison'].add_row(*fullrow)
+                    t_sections['liaison'].add_row(*fullrow)
                     # liaison_duration += duration
                     # liaison_cells.extend(cells)
                 elif col_3_val in ('Petition', 'Petitions'):
-                    table_sections['e_petition'].add_row(*fullrow)
+                    t_sections['e_petition'].add_row(*fullrow)
                     # e_petition_duration += duration
                     # e_petition_cells.extend(cells)
                 elif col_3_val in ('Suspension',):
-                    table_sections['suspension'].add_row(*fullrow)
+                    t_sections['suspension'].add_row(*fullrow)
                     # suspension_duration += duration
                     # suspension_cells.extend(cells)
                 elif col_3_val in ('Committee Statement',):
-                    table_sections['statements'].add_row(*fullrow)
-                elif col_3_val in ('Time limit', 'Time Limit', 'Observation of a period of silence'):
-                    table_sections['miscellaneous'].add_row(*fullrow)
+                    t_sections['statements'].add_row(*fullrow)
+                elif col_3_val in ('Time limit', 'Time Limit',
+                                   'Observation of a period of silence'):
+                    t_sections['miscellaneous'].add_row(*fullrow)
                     # miscellaneous_duration += duration
                     # miscellaneous.extend(cells)
                 # if col_3_val == '[exit]':
-                #     table_sections['brexit'].add_row(cells, duration)
+                #     t_sections['brexit'].add_row(cells, duration)
 
 
-        for table_section in table_sections.values():
+        for table_section in t_sections.values():
             if len(table_section) > 0:
                 table_section.add_to(table_ele)
 
         # create root element
         output_root = Element('root')
         output_root.append(table_ele)
-        etree.ElementTree(output_root).write('WH_Analysis.xml', encoding='UTF-8', xml_declaration=True)
+        etree.ElementTree(output_root).write('WH_Analysis.xml', encoding='UTF-8',
+                                             xml_declaration=True)
 
-        WH_AnalysisTableSection.output_contents('WH_contents.txt')
+        # WH_AnalysisTableSection.output_contents('WH_contents.txt')
+
+        # also output the contents file
+        # CH_AnalysisTableSection.output_contents('CH_contents.txt')
+
+        # build up CH_contents.txt again
+        # part_1 duration
+        text = f'\tPart 2\t{format_timedelta(WH_AnalysisTableSection.part_dur)}'
+
+        previous_number = 0
+        for table_section in t_sections.values():
+            if table_section.table_num > previous_number:
+                previous_number = table_section.table_num
+
+                table_num = table_section.table_num
+                table_num_dur_formatted = format_timedelta(
+                    WH_AnalysisTableSection.table_num_dur.get(table_num, timedelta()))
+                text += (f'\n\t{table_num}'
+                         f'\t{table_num_dur_formatted}')
+            else:
+                try:
+                    title_number = table_section.title.split(":\t")[0]
+                except Exception:
+                    title_number = table_section.title
+                formatted_dur = format_timedelta(table_section.duration)
+                text += f'\n\t{title_number}\t{formatted_dur}'
+        print(text)
 
 
 def main():
@@ -865,7 +905,6 @@ def main():
         parser.add_argument('--no-excel',
                             action='store_true',
                             help='Use this flag if you want do not want to output an exel file.')
-
 
         parser.add_argument('--include-only',
                             type=str,
@@ -887,16 +926,17 @@ def main():
             run(args.input.name, no_excel=args.no_excel)
 
     else:
-        pass
         # run the GUI version
         run_OP_toolapp = tk.Tk()
         GUIApp(run_OP_toolapp)
         run_OP_toolapp.mainloop()
 
 
-
-def run(excel_file_path: str, output_folder_path: str = '',
-        include_chamber=True, include_wh=True, no_excel=False):
+def run(excel_file_path: str,
+        output_folder_path: str = '',
+        include_chamber=True,
+        include_wh=True,
+        no_excel=False):
 
     # sessional_diary = Sessional_Diary('Sessional diary 2019-21_downloaded_2021-06-18.xlsx')
     sessional_diary = Sessional_Diary(excel_file_path, no_excel)
@@ -919,9 +959,6 @@ def run(excel_file_path: str, output_folder_path: str = '',
     if Excel.out_wb is not None:
         del Excel.out_wb['Sheet']
         Excel.out_wb.save(filename=str(Path(output_folder_path, 'text.xlsx')))
-
-
-
 
 
 
@@ -1030,10 +1067,12 @@ class GUIApp:
         infilename_Path = Path(infilename)
         output_folder_Path = Path(output_folder)
         if not (infilename_Path.exists() and infilename.endswith('.xlsx')):
-            messagebox.showerror('Error', 'Please select an Excel file using the Input Excel File button.')
+            messagebox.showerror(
+                'Error', 'Please select an Excel file using the Input Excel File button.')
             return
         if not (output_folder_Path.is_dir() and os.access(output_folder, os.W_OK)):
-            messagebox.showerror('Error', 'Please select a folder for the output files to be saved into')
+            messagebox.showerror(
+                'Error', 'Please select a folder for the output files to be saved into')
             return
 
         run(infilename, output_folder, no_excel=self.no_excel)
