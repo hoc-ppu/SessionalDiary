@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 
 import argparse
-# from copy import deepcopy
 from datetime import date, datetime, timedelta, time
 import os
 from pathlib import Path
 import sys
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-# from typing import Iterable
 from typing import Union
-# from typing import Optional
 from typing import cast
 from typing import Type
 
@@ -18,28 +15,19 @@ from typing import Type
 from lxml import etree
 from lxml.etree import Element
 from lxml.etree import SubElement
-# from lxml.etree import  _Element
-# from lxml.etree import iselement
 from openpyxl import load_workbook, Workbook
-# from openpyxl.styles import Font
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.cell import cell as CELL
-# from openpyxl.cell import Cell
 
 # 1st party imports
 from package.utilities import ID_Cell
-from package.tables import CH_Table
-from package.tables import WH_Table
-from package.tables import CH_Diary_Table
-from package.tables import WH_Diary_Table
-from package.tables import CH_DiaryDay_TableSection
-from package.tables import CH_AnalysisTableSection
-from package.tables import WH_DiaryDay_TableSection
-from package.tables import WH_AnalysisTableSection
+from package.tables import CH_Table, WH_Table
+from package.tables import CH_Diary_Table, WH_Diary_Table
+from package.tables import CH_DiaryDay_TableSection, WH_DiaryDay_TableSection
+from package.tables import CH_AnalysisTableSection, WH_AnalysisTableSection
 from package.tables import Excel
 from package.utilities import make_id_cells, format_timedelta
-from package.utilities import AID, AID5
-from package.utilities import NS_MAP
+from package.utilities import AID, AID5, NS_MAP
 
 
 # override default openpyxl timedelta (duration) format
@@ -47,11 +35,6 @@ CELL.TIME_FORMATS[timedelta] = '[h].mm'
 
 
 DATE_NUM_LOOK_UP: dict[datetime, int] = {}
-
-# create new workbook for the output
-# out_wb = Workbook()
-
-# BOLD = Font(bold=True)
 
 class Sessional_Diary:
 
@@ -61,10 +44,8 @@ class Sessional_Diary:
 
         # if we require an output excel file
         if no_excel is False:
-            Excel.out_wb = Workbook()
+            Excel.out_wb = Workbook()  # new Excel workbook obi
 
-        # create a new Excel workbook for the excel summary sheets (if required)
-        # self.ouput_workbook = Workbook()
 
     def house_diary(self):
         """Create an (indesign formatted) XML file for the house diary section of
@@ -125,7 +106,6 @@ class Sessional_Diary:
             for i, value in enumerate(row_values):
                 if value is None:
                     row_values[i] = ''
-                # if isinstance(value, time):
                 if isinstance(value, time):
                     row_values[i] = value.strftime('%H.%M')
                 # elif isinstance(value, datetime):
@@ -136,12 +116,11 @@ class Sessional_Diary:
                 continue
 
             if row_values[0] == 'Day' and row_values[1] == 'Date':
-                # ignore the row with the date in
-                continue
+                continue  # ignore the row with the Date in
 
             if isinstance(row_values[0], int) and isinstance(row_values[1], datetime):
 
-                # we will calculate the day number rarther than getting the number from excel
+                # we will calculate the day number rather than getting the number from excel
                 day_number_counter += 1
                 table_sections.append(CH_DiaryDay_TableSection(
                     f'{day_number_counter}.\u2002{row_values[1].strftime("%A %d %B %Y")}'))
@@ -184,7 +163,7 @@ class Sessional_Diary:
 
     def house_analysis(self):
 
-        # we're only interested in the maind data here
+        # we're only interested in the main data here
         main_data = self.input_workbook['Main data']
 
         # add heading elements to table
@@ -352,7 +331,8 @@ class Sessional_Diary:
 
         for c, row in enumerate(main_data.iter_rows()):  # type: ignore
 
-            row_values = [item.value for item in row[:9]]  # only interested in the first few cells
+            # only interested in vfg the first few cells
+            row_values = [item.value for item in row[:9]]
 
             # check to see if all items in list are None as there are lots of blank rows
             if all(v is None for v in row_values):
@@ -390,17 +370,6 @@ class Sessional_Diary:
                 # assume we can skip any records without a date
                 continue
 
-            # formatted times
-            # try:
-            #     formatted_duration = col_duration.strftime('%H.%M')
-            # except AttributeError:
-            #     # col_duration is not a datetime so just leave it blank
-            #     formatted_duration = ''
-            # try:
-            #     formatted_a_a_t = col_a_a_t.strftime('%H.%M')
-            # except AttributeError:
-            #     formatted_a_a_t = ''
-
             forematted_date = format_date(col_date)
 
             # col_time = Time.strip().lower()
@@ -427,19 +396,19 @@ class Sessional_Diary:
             if '[pmb]' not in col_exit:
                 # here we have items that are not explicitly private members' bills
                 if col_subject == 'second reading' and 'pbc' in col_exit:
-                    # gove bill second reading
+                    # gov bill second reading
                     t_sections['second_readings'].add_row(*fullrow)
 
                 if 'committee of the whole house' in col_subject:
                     t_sections['cwh_2_bills'].add_row(*fullrow)
                 if 'consideration' in col_subject:
-                    # gove bill consideration
+                    # gov bill consideration
                     t_sections['gov_bil_cons'].add_row(*fullrow)
                 if col_subject == 'third reading':
-                    # gove bill third reading
+                    # gov bill third reading
                     t_sections['gov_bill_3rd'].add_row(*fullrow)
                 if col_subject == 'lords amendments':
-                    # gove bill lords amendments
+                    # gov bill lords amendments
                     t_sections['gov_bill_lord_amend'].add_row(*fullrow)
                 gov_bill_other_subs = ('second and third reading',
                                        'money resolution',
@@ -549,7 +518,7 @@ class Sessional_Diary:
             if len(table_section) > 0:
                 table_section.add_to(table_ele)
 
-        # need to also add prayes even though there are no rows
+        # need to also add prayers even though there are no rows
         t_sections['prayers'].add_to(table_ele)
 
         # now create XML for InDesign
@@ -671,7 +640,7 @@ class Sessional_Diary:
                 # if avaliable we will get the day number of the chamber for this date
                 chamber_daynum = DATE_NUM_LOOK_UP.get(row_values[1], '')
                 # actually we will calculate the day number
-                # rarther than getting the number from excel
+                # rather than getting the number from excel
                 day_number_counter += 1
 
                 tbl_sec_title_without_date = f'{day_number_counter}.\u2002[{chamber_daynum}] '
@@ -721,11 +690,11 @@ class Sessional_Diary:
 
         wh_data = cast(Worksheet, self.input_workbook['Westminster Hall'])
 
-        # add a new tabel element with headings
+        # add a new table element with headings
         table_ele = id_table([('Date', 95), ('Detail', 340), ('Duration', 45)],
                              table_class=WH_Table)
 
-        # can now use dict (rarther than ordered dict) as order is guarenteed
+        # can now use dict (rather than ordered dict) as order is guaranteed
         t_sections = {
             # the order matters!
             'private': WH_AnalysisTableSection(
@@ -783,7 +752,7 @@ class Sessional_Diary:
             if row_values[4] in ('Daily totals', 'Totals for Session'):
                 continue
             # if not row_values[0] or isinstance(row_values[0], int):
-            #     # some values are balnk or are numbers
+            #     # some values are blank or are numbers
             #     continue
 
             # sometimes the value in the cell is not a time but is instead a datetime e.g. cell H751
@@ -904,14 +873,14 @@ def main():
 
         parser.add_argument('--no-excel',
                             action='store_true',
-                            help='Use this flag if you want do not want to output an exel file.')
+                            help='Use this flag if you want do not want to output an excel file.')
 
         parser.add_argument('--include-only',
                             type=str,
                             choices=['chamber', 'wh'],
                             help='Use this option if you want to include *only* '
                                  'one section (e.g. just the Chamber section) '
-                                 'rarther than both sections')
+                                 'rather than both sections')
 
 
         args = parser.parse_args(sys.argv[1:])
@@ -972,7 +941,7 @@ def timedelta_from_time(t, default=timedelta(seconds=0)):
         return default
 
 
-def id_table(list_of_tupples: list[tuple[str, int]],
+def id_table(list_of_tuples: list[tuple[str, int]],
              table_class: Type[WH_Table]):
     """Takes a list of 2 tuples of table header and cell widths"""
 
@@ -983,13 +952,13 @@ def id_table(list_of_tupples: list[tuple[str, int]],
     table_ele = table_class(  # type: ignore
         nsmap=NS_MAP,
         attrib={AID + 'table': 'table',
-                AID + 'tcols': str(len(list_of_tupples)),
+                AID + 'tcols': str(len(list_of_tuples)),
                 AID5 + 'tablestyle': 'Part1Table'})
     # table_ele.tag = 'Table'
     table_ele.increment_rows()
 
     # add heading elements to table
-    for item in list_of_tupples:
+    for item in list_of_tuples:
         heading = SubElement(table_ele, 'Cell',
                              attrib={AID + 'table': 'cell',
                                      AID + 'theader': '',
@@ -1008,7 +977,6 @@ def format_date(date_containing_item: Union[datetime, date, str]):
         except ValueError:
             print('print')
             print(date_containing_item)
-
 
 
 # class for the GUI app
@@ -1045,14 +1013,14 @@ class GUIApp:
                                           width=20, command=self.get_output_folder)
         template_html_button.grid(row=1, column=0, stick='w', padx=10, pady=3)
 
+        # checkbox
         self.no_excel = tk.BooleanVar()
         self.no_excel.set(False)
         checkbox = ttk.Checkbutton(self.frame_top, text="Output Excel file", variable=self.no_excel,
                                    onvalue=False, offvalue=True)
         checkbox.grid(row=2, column=0, stick='w', padx=10, pady=3)
-        # checkbox.select()
 
-
+        # run button
         run_OP_tool_button = ttk.Button(self.frame_top, text="Run",
                                         width=12, command=self.gui_run)
         run_OP_tool_button.grid(row=7, column=0, columnspan=3, padx=10, pady=10)
@@ -1077,7 +1045,6 @@ class GUIApp:
 
         run(infilename, output_folder, no_excel=self.no_excel)
         messagebox.showinfo(title=None, message='All Done!')
-
 
 
     def get_input_file(self):

@@ -17,7 +17,7 @@ BOLD = Font(bold=True)
 
 # exporting to excel is optional
 class Excel:
-    # the workbook class to otuput to
+    # the workbook class to output to
     out_wb: Optional[Workbook] = None
 
 
@@ -27,7 +27,6 @@ class _TableSection():
         self.rows = 0
         self.cells = []
 
-
     def __len__(self):
         return len(self.cells)
 
@@ -35,7 +34,6 @@ class _TableSection():
         self.rows += 1
         cells = make_id_cells(cells_items)
         self.cells.extend(cells)
-
 
     def add_to(self, table):
         # ID XML stuff
@@ -57,16 +55,16 @@ class WH_AnalysisTableSection(_TableSection):
     #     with open(file_path, 'w') as f:
     #         f.write(cls.contents_text)
 
-    def __init__(self, title: str, excell_sheet_title: str, table_num: int):
+    def __init__(self, title: str, excel_sheet_title: str, table_num: int):
         super().__init__(title)
         self.table_num = table_num
         self.duration = timedelta(seconds=0)
         # self.out_wb = excel_workbook
         # also create an excel sheet
-        # self.sheet_title = excell_sheet_title
+        # self.sheet_title = excel_sheet_title
         self.excel_sheet: Optional[Worksheet] = None
         if Excel.out_wb:
-            self.excel_sheet = cast(Worksheet, Excel.out_wb.create_sheet(excell_sheet_title))
+            self.excel_sheet = cast(Worksheet, Excel.out_wb.create_sheet(excel_sheet_title))
 
     def add_row(self, cells_items: Iterable, duration: timedelta):
         super().add_row(cells_items)
@@ -127,9 +125,9 @@ class CH_AnalysisTableSection(WH_AnalysisTableSection):
     part_aat = timedelta(seconds=0)
     table_num_aat = {}
 
-    def __init__(self, title: str, excell_sheet_title: str,
+    def __init__(self, title: str, excel_sheet_title: str,
                  table_num: int):
-        super().__init__(title, excell_sheet_title, table_num)
+        super().__init__(title, excel_sheet_title, table_num)
         self.after_appointed_time = timedelta(seconds=0)
 
     def add_row(self, cells_items: Iterable, duration: timedelta, aat: timedelta):
@@ -270,13 +268,13 @@ class WH_Table(etree.ElementBase):
         time_cell.text = format_timedelta(total_duration)
         self.extend(make_id_cells([None]) + [total_cell, time_cell])  # type: ignore
 
-    def add_table_sub_head(self, heding_text: str):
+    def add_table_sub_head(self, heading_text: str):
         self.increment_rows()
         sub_head = SubElement(self, 'Cell',
                               attrib={AID + 'table': 'cell',
                                       AID + 'ccols': '3',
                                       AID5 + 'cellstyle': 'SubHeading'})
-        sub_head.text = heding_text
+        sub_head.text = heading_text
 
 
 class WH_Diary_Table(WH_Table):
@@ -285,30 +283,30 @@ class WH_Diary_Table(WH_Table):
         self.increment_rows()
         total_cell = utils.Right_align_cell()
         total_cell.set(AID + 'ccols', '2')  # span 2 cols
-        # total_cell.set(AID5 + 'cellstyle', 'RightAlign')  # right align content
         total_cell.text = 'Daily Totals:'
+
         time_cell = utils.Body_line_above()
-        # time_cell.set(AID5 + 'cellstyle', 'BodyLineAbove')
         time_cell.text = format_timedelta(daily_total_duration)
+
         self.extend([total_cell, time_cell])  # type: ignore
 
         self.increment_rows()
         total_cell = utils.Body_line_below_right_align()
         total_cell.set(AID + 'ccols', '2')  # span 2 cols
-        # total_cell.set(AID5 + 'cellstyle', 'BodyLineBelowRightAlign')  # right align content
         total_cell.text = 'Totals for Session:'
+
         time_cell = utils.Body_line_below()
-        # time_cell.set(AID5 + 'cellstyle', 'BodyLineBelow')
         time_cell.text = format_timedelta(session_total_duration)
+
         self.extend([total_cell, time_cell])  # type: ignore
 
-    def add_table_sub_head(self, heding_text: str):
+    def add_table_sub_head(self, heading_text: str):
         self.increment_rows()
         sub_head = SubElement(self, 'Cell',
                               attrib={AID + 'table': 'cell',
                                       AID + 'ccols': '3',
                                       AID5 + 'cellstyle': 'SubHeading No Toc'})
-        sub_head.text = heding_text
+        sub_head.text = heading_text
 
 
 class CH_Table(WH_Table):
@@ -316,24 +314,23 @@ class CH_Table(WH_Table):
     def add_total_duration(self, total_duration, aat_total) -> None:
         self.increment_rows()
         total_cell = utils.Body_line_below_right_align()
-        # total_cell.set(AID + 'ccols', '2')  # span 2 cols
-        # total_cell.set(AID5 + 'cellstyle', 'BodyLineBelowRightAlign')  # right align content
         total_cell.text = 'Total:'
+
         time_cell = utils.Body_lines()
-        # time_cell.set(AID5 + 'cellstyle', 'BodyLines')
         time_cell.text = format_timedelta(total_duration)
+
         time_2_cell = utils.Body_lines()
-        # time_2_cell.set(AID5 + 'cellstyle', 'BodyLines')
         time_2_cell.text = format_timedelta(aat_total)
+
         self.extend(make_id_cells([None]) + [total_cell, time_cell, time_2_cell])  # type: ignore
 
-    def add_table_sub_head(self, heding_text: str):
+    def add_table_sub_head(self, heading_text: str):
         self.increment_rows()
         SubElement(self, 'Cell',
                    attrib={AID + 'table': 'cell',
                            AID + 'ccols': '4',
                            AID5 + 'cellstyle': 'SubHeading'}
-                   ).text = heding_text
+                   ).text = heading_text
 
 
 class CH_Diary_Table(WH_Table):
@@ -343,35 +340,34 @@ class CH_Diary_Table(WH_Table):
         self.increment_rows()
         total_cell = utils.Right_align_cell()
         total_cell.set(AID + 'ccols', '2')  # span 2 cols
-        # total_cell.set(AID5 + 'cellstyle', 'RightAlign')  # right align content
         total_cell.text = 'Daily Totals:'
+
         time_cell = utils.Body_line_above()
-        # time_cell.set(AID5 + 'cellstyle', 'BodyLineAbove')
         time_cell.text = format_timedelta(daily_total_duration)
+
         time_2_cell = utils.Body_line_above()
-        # time_2_cell.set(AID5 + 'cellstyle', 'BodyLineAbove')
-        time_2_cell.text = format_timedelta(daily_aat_total)
+
         self.extend(make_id_cells([None]) + [total_cell, time_cell, time_2_cell])  # type: ignore
+
 
         self.increment_rows()
         total_cell = utils.Body_line_below_right_align()
         total_cell.set(AID + 'ccols', '2')  # span 2 cols
-        # total_cell.set(AID5 + 'cellstyle', 'BodyLineBelowRightAlign')  # right align content
         total_cell.text = 'Totals for Session:'
+
         time_cell = utils.Body_line_below()
-        # time_cell.set(AID5 + 'cellstyle', 'BodyLineBelow')
         time_cell.text = format_timedelta(session_total_duration)
         time_2_cell = utils.Body_line_below()
-        # time_2_cell.set(AID5 + 'cellstyle', 'BodyLineBelow')
         time_2_cell.text = format_timedelta(session_aat_total)
+
         cells = (make_id_cells([None], attrib={AID5 + 'cellstyle': 'BodyLineBelow'})
                  + [total_cell, time_cell, time_2_cell])
         self.extend(cells)   # type: ignore
 
-    def add_table_sub_head(self, heding_text: str):
+    def add_table_sub_head(self, heading_text: str):
         self.increment_rows()
         SubElement(self, 'Cell',
                    attrib={AID + 'table': 'cell',
                            AID + 'ccols': '5',
                            AID5 + 'cellstyle': 'SubHeading No Toc'}
-                   ).text = heding_text
+                   ).text = heading_text

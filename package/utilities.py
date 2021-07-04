@@ -66,17 +66,17 @@ def Body_lines() -> _Element:
     return cell
 
 
-def make_id_cells(itterable: Iterable[Union[str, _Element, timedelta, None, int, float]],
+def make_id_cells(iterable: Iterable[Union[str, _Element, timedelta, None, int, float]],
                   attrib: dict = {}) -> list[_Element]:
     cells = []
-    for item in itterable:
+    for item in iterable:
         if iselement(item):
             cells.append(deepcopy(item))
         else:
             cell = ID_Cell()
             if attrib:
-                for attibute_key, attribute_value in attrib.items():
-                    cell.set(attibute_key, attribute_value)
+                for attribute_key, attribute_value in attrib.items():
+                    cell.set(attribute_key, attribute_value)
             if isinstance(item, str):
                 cell.text = item
             elif isinstance(item, timedelta):
