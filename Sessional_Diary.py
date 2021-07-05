@@ -203,6 +203,10 @@ class Sessional_Diary:
                 '2g:\tGovernment Bills: Lord Amendments',
                 '2g Lords Amendments',
                 2),
+            'alloc_time': CH_TableSection(
+                '2h:\tAllocation of time motions',
+                '2h Allocation of time motions',
+                2),
             'gov_bill_other': CH_AnalysisTableSection(
                 '2i:\tGovernment Bills: Other Stages',
                 '2i Govt Bills Other Stages',
@@ -420,6 +424,9 @@ class Sessional_Diary:
             if (col_subject == 'second reading'
                     and 'committee of the whole house' in col_subject2.lower()):
                 t_sections['cwh_bills'].add_row(*fullrow)
+
+            if col_subject.lower() in ('general debate', 'general motion'):
+                t_sections['alloc_time'].add_row(*fullrow)
 
             if '[pmb]' in col_exit:
                 if col_subject == 'second reading':
