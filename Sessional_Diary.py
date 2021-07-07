@@ -3,11 +3,10 @@
 import argparse
 from datetime import date, datetime, timedelta, time
 import os
-from pathlib import Path
+# from pathlib import Path
 import sys
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
-from typing import Union
+# import tkinter as tk
+# from tkinter import ttk, filedialog, messagebox
 from typing import cast
 from typing import Type
 
@@ -27,6 +26,7 @@ from package.tables import CH_DiaryDay_TableSection, WH_DiaryDay_TableSection
 from package.tables import CH_AnalysisTableSection, WH_AnalysisTableSection
 from package.tables import Excel
 from package.utilities import make_id_cells, format_timedelta
+from package.utilities import timedelta_from_time, format_date
 from package.utilities import AID, AID5, NS_MAP
 
 
@@ -47,7 +47,7 @@ class Sessional_Diary:
             Excel.out_wb = Workbook()  # new Excel workbook obi
 
 
-    def house_diary(self):
+    def house_diary(self, output_folder_path: str = ''):
         """Create an (indesign formatted) XML file for the house diary section of
         the Sessional diary."""
 
@@ -159,9 +159,10 @@ class Sessional_Diary:
         output_root = Element('root')  # create root element
         output_root.append(table_ele)
         output_tree = etree.ElementTree(output_root)
-        output_tree.write('House_Diary.xml', encoding='UTF-8', xml_declaration=True)
+        output_tree.write(os.path.join(output_folder_path, 'House_Diary.xml'),
+                          encoding='UTF-8', xml_declaration=True)
 
-    def house_analysis(self):
+    def house_analysis(self, output_folder_path: str = ''):
 
         # we're only interested in the main data here
         main_data = self.input_workbook['Main data']
@@ -203,7 +204,7 @@ class Sessional_Diary:
                 '2g:\tGovernment Bills: Lord Amendments',
                 '2g Lords Amendments',
                 2),
-            'alloc_time': CH_TableSection(
+            'alloc_time': CH_AnalysisTableSection(
                 '2h:\tAllocation of time motions',
                 '2h Allocation of time motions',
                 2),
@@ -533,7 +534,7 @@ class Sessional_Diary:
         output_root = Element('root')
         output_root.append(table_ele)
         output_tree = etree.ElementTree(output_root)
-        output_tree.write('House_Analysis_4.xml',
+        output_tree.write(os.path.join(output_folder_path, 'House_Analysis_4.xml'),
                           encoding='UTF-8', xml_declaration=True)
 
         # also output the contents file
@@ -541,7 +542,7 @@ class Sessional_Diary:
 
         # build up CH_contents.txt again
         # part_1 duration
-        text = f'\tPart 1\t{format_timedelta(CH_AnalysisTableSection.part_dur)}' \
+        text = f'\tPart 2\t{format_timedelta(CH_AnalysisTableSection.part_dur)}' \
             f'\t{format_timedelta(CH_AnalysisTableSection.part_aat)}'
 
         previous_number = 0
@@ -568,7 +569,7 @@ class Sessional_Diary:
                 text += f'\n\t{title_number}\t{formatted_dur}\t{formatted_aat}'
         print(text)
 
-    def wh_diary(self):
+    def wh_diary(self, output_folder_path: str = ''):
         table_ele = id_table(
             [('Time', 35), ('Subject', 400), ('Duration', 45)],
             table_class=WH_Diary_Table
@@ -691,9 +692,11 @@ class Sessional_Diary:
         # now create XML for InDesign
         output_root = Element('root')  # create root element
         output_root.append(table_ele)
-        etree.ElementTree(output_root).write('WH_diary.xml', encoding='UTF-8', xml_declaration=True)
+        tree = etree.ElementTree(output_root)
+        tree.write(os.path.join(output_folder_path, 'WH_diary.xml'),
+                   encoding='UTF-8', xml_declaration=True)
 
-    def wh_analysis(self):
+    def wh_analysis(self, output_folder_path: str = ''):
 
         wh_data = cast(Worksheet, self.input_workbook['Westminster Hall'])
 
@@ -835,8 +838,9 @@ class Sessional_Diary:
         # create root element
         output_root = Element('root')
         output_root.append(table_ele)
-        etree.ElementTree(output_root).write('WH_Analysis.xml', encoding='UTF-8',
-                                             xml_declaration=True)
+        tree = etree.ElementTree(output_root)
+        tree.write(os.path.join(output_folder_path, 'WH_Analysis.xml'),
+                   encoding='UTF-8', xml_declaration=True)
 
         # WH_AnalysisTableSection.output_contents('WH_contents.txt')
 
@@ -845,7 +849,7 @@ class Sessional_Diary:
 
         # build up CH_contents.txt again
         # part_1 duration
-        text = f'\tPart 2\t{format_timedelta(WH_AnalysisTableSection.part_dur)}'
+        text = f'\tPart 4\t{format_timedelta(WH_AnalysisTableSection.part_dur)}'
 
         previous_number = 0
         for table_section in t_sections.values():
@@ -889,7 +893,6 @@ def main():
                                  'one section (e.g. just the Chamber section) '
                                  'rather than both sections')
 
-
         args = parser.parse_args(sys.argv[1:])
 
         print(args)
@@ -903,9 +906,8 @@ def main():
 
     else:
         # run the GUI version
-        run_OP_toolapp = tk.Tk()
-        GUIApp(run_OP_toolapp)
-        run_OP_toolapp.mainloop()
+        from package import gui
+        gui.mainloop(run_callback=run)
 
 
 def run(excel_file_path: str,
@@ -919,33 +921,22 @@ def run(excel_file_path: str,
 
     if include_chamber:
         # create house diary
-        sessional_diary.house_diary()
+        sessional_diary.house_diary(output_folder_path)
 
         # create house analysis
-        sessional_diary.house_analysis()
+        sessional_diary.house_analysis(output_folder_path)
 
     if include_wh:
         # crete Westminster hall diary
-        sessional_diary.wh_diary()
+        sessional_diary.wh_diary(output_folder_path)
 
         # create Westminster hall analysis
-        sessional_diary.wh_analysis()
+        sessional_diary.wh_analysis(output_folder_path)
 
     # remove the default sheet
     if Excel.out_wb is not None:
         del Excel.out_wb['Sheet']
-        Excel.out_wb.save(filename=str(Path(output_folder_path, 'text.xlsx')))
-
-
-
-def timedelta_from_time(t, default=timedelta(seconds=0)):
-    try:
-        return datetime.combine(date.min, t) - datetime.min
-    except TypeError as e:
-        if t != '':
-            print(f'{t=}')
-            print(e)
-        return default
+        Excel.out_wb.save(filename=os.path.join(output_folder_path, 'Analysis.xlsx'))
 
 
 def id_table(list_of_tuples: list[tuple[str, int]],
@@ -973,106 +964,6 @@ def id_table(list_of_tuples: list[tuple[str, int]],
         heading.text = item[0]
 
     return table_ele
-
-
-def format_date(date_containing_item: Union[datetime, date, str]):
-    if isinstance(date_containing_item, datetime):
-        return date_containing_item.strftime('%a,\t%d\t%b\t%Y')
-    if isinstance(date_containing_item, str):
-        try:
-            return datetime.strptime(date_containing_item, '%d %B %Y').strftime('%a,\t%d\t%b\t%Y')
-        except ValueError:
-            print('print')
-            print(date_containing_item)
-
-
-# class for the GUI app
-class GUIApp:
-    def __init__(self, master):
-
-        # input file path
-        self.input_file_path = tk.StringVar()
-        # template file path
-        self.output_folder_path = tk.StringVar()
-
-        self.master_window = master
-
-        # add title to the window
-        master.title("Sessional Diary Maker")
-
-        # make background frame
-        self.frame_background = ttk.Frame(master)
-        self.frame_background.pack(fill=tk.BOTH, expand=tk.TRUE)
-
-        # make frames
-        self.frame_top = ttk.LabelFrame(self.frame_background)
-        self.frame_top.pack(padx=10, pady=10, fill=tk.BOTH, expand=tk.TRUE)
-
-        self.frame_top.columnconfigure(0, weight=1)
-        self.frame_top.columnconfigure(1, weight=1)
-
-        # Buttons
-        input_file_button = ttk.Button(self.frame_top, text="Input Excel File",
-                                       width=20, command=self.get_input_file)
-        input_file_button.grid(row=0, column=0, stick='w', padx=10, pady=3)
-
-        template_html_button = ttk.Button(self.frame_top, text="Output folder",
-                                          width=20, command=self.get_output_folder)
-        template_html_button.grid(row=1, column=0, stick='w', padx=10, pady=3)
-
-        # checkbox
-        self.no_excel = tk.BooleanVar()
-        self.no_excel.set(False)
-        checkbox = ttk.Checkbutton(self.frame_top, text="Output Excel file", variable=self.no_excel,
-                                   onvalue=False, offvalue=True)
-        checkbox.grid(row=2, column=0, stick='w', padx=10, pady=3)
-
-        # run button
-        run_OP_tool_button = ttk.Button(self.frame_top, text="Run",
-                                        width=12, command=self.gui_run)
-        run_OP_tool_button.grid(row=7, column=0, columnspan=3, padx=10, pady=10)
-
-
-    def gui_run(self):
-
-        infilename     = self.input_file_path.get()
-        output_folder  = self.output_folder_path.get()
-
-        # some validation
-        infilename_Path = Path(infilename)
-        output_folder_Path = Path(output_folder)
-        if not (infilename_Path.exists() and infilename.endswith('.xlsx')):
-            messagebox.showerror(
-                'Error', 'Please select an Excel file using the Input Excel File button.')
-            return
-        if not (output_folder_Path.is_dir() and os.access(output_folder, os.W_OK)):
-            messagebox.showerror(
-                'Error', 'Please select a folder for the output files to be saved into')
-            return
-
-        run(infilename, output_folder, no_excel=self.no_excel)
-        messagebox.showinfo(title=None, message='All Done!')
-
-
-    def get_input_file(self):
-        directory = filedialog.askopenfilename(parent=self.master_window,
-                                               filetypes=[("Excel files", ".xlsx .xls")])
-        self.input_file_path.set(directory)
-
-    def get_output_folder(self):
-        directory = ''
-        try:
-            parent_folder = Path(self.input_file_path.get()).parent
-            if parent_folder.is_dir():
-                directory = filedialog.askdirectory(parent=self.master_window,
-                                                    initialdir=str(parent_folder.resolve()))
-            else:
-                directory = filedialog.askdirectory(parent=self.master_window)
-        except Exception as e:
-            print(e)
-            directory = filedialog.askdirectory(parent=self.master_window)
-        finally:
-            self.output_folder_path.set(directory)
 
 
 if __name__ == '__main__':
