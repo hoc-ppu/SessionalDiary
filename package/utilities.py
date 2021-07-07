@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime, date
 from copy import deepcopy
 from typing import Iterable
 from typing import Union
@@ -94,3 +94,24 @@ def format_timedelta(td: timedelta) -> str:
     hours = round(total_seconds // 3600)
     mins = round(total_seconds % 3600 / 60)
     return f'{hours}.{mins:02}'
+
+
+def format_date(date_containing_item: Union[datetime, date, str]):
+    if isinstance(date_containing_item, datetime):
+        return date_containing_item.strftime('%a,\t%d\t%b\t%Y')
+    if isinstance(date_containing_item, str):
+        try:
+            return datetime.strptime(date_containing_item, '%d %B %Y').strftime('%a,\t%d\t%b\t%Y')
+        except ValueError:
+            print('print')
+            print(date_containing_item)
+
+
+def timedelta_from_time(t, default=timedelta(seconds=0)):
+    try:
+        return datetime.combine(date.min, t) - datetime.min
+    except TypeError as e:
+        if t != '':
+            print(f'{t=}')
+            print(e)
+        return default
