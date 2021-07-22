@@ -9,6 +9,7 @@ import sys
 # from tkinter import ttk, filedialog, messagebox
 from typing import cast
 from typing import Type
+from typing import Sequence
 
 # 3rd party imports
 from lxml import etree
@@ -17,6 +18,7 @@ from lxml.etree import SubElement
 from openpyxl import load_workbook, Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.cell import cell as CELL
+from openpyxl.cell.cell import Cell
 
 # 1st party imports
 from package.utilities import ID_Cell
@@ -36,7 +38,74 @@ CELL.TIME_FORMATS[timedelta] = '[h].mm'
 
 DATE_NUM_LOOK_UP: dict[datetime, int] = {}
 
+
+#  We expect the following column headings for the
+# Chamber section in the Excel document
+DAY = 'Day'
+DATE = 'Date'
+TIME = 'Time'
+SUBJECT1 = 'Subject 1'
+SUBJECT2 = 'Subject 2'
+TAGS = 'Tags'
+DURATION = 'DurationFx'
+AAT = 'AAT'
+
+CHAMBER_COLS = [DAY, DATE, TIME, SUBJECT1, SUBJECT2, TAGS, DURATION, AAT]
+
+
+class CHRow:
+    title_index: dict[str, int] = {}
+
+    def __init__(self, excel_row: Sequence[Cell]):
+        if not CHRow.title_index:
+            print('Error: title_index not set up')
+            exit()
+        self.day = excel_row[CHRow.title_index[DAY]].value
+        self.date = excel_row[CHRow.title_index[DATE]].value
+        time_cell = excel_row[CHRow.title_index[TIME]]
+        self.time = time_cell.value
+        if isinstance(self.time, datetime):
+            time_obj = self.time.time()
+            print(f'There is a datetime at cell {time_cell.coordinate}:', str(self.time))
+            print(f'This has been converted to the following time: {time_obj}')
+            self.time = time_obj
+
+        self.subject1 = excel_row[CHRow.title_index[SUBJECT1]].value
+        self.subject2 = excel_row[CHRow.title_index[SUBJECT2]].value
+        self.tags = excel_row[CHRow.title_index[TAGS]].value
+        duration_cell = excel_row[CHRow.title_index[DURATION]]
+        self.duration: timedelta
+        if isinstance(duration_cell.value, datetime):
+            # don't trust the datetime only the time
+            time_obj = duration_cell.value.time()
+            print(f'There is a datetime at cell {duration_cell.coordinate}:', str(duration_cell.value))
+            print(f'This has been converted to the following time: {time_obj}')
+            self.aat = datetime.combine(date.min, time_obj) - datetime.min
+        elif isinstance(duration_cell.value, time):
+            self.aat = datetime.combine(date.min, duration_cell.value) - datetime.min
+        elif not isinstance(duration_cell.value, timedelta):
+            print(f'Problem in cell {duration_cell.coordinate}')
+            self.aat = timedelta()
+
+        aat_cell = excel_row[CHRow.title_index[AAT]]
+        self.aat: timedelta
+        if isinstance(aat_cell.value, datetime):
+            # don't trust the datetime only the time
+            time_obj = aat_cell.value.time()
+            print(f'There is a datetime at cell {aat_cell.coordinate}:', str(aat_cell.value))
+            print(f'This has been converted to the following time: {time_obj}')
+            self.aat = datetime.combine(date.min, time_obj) - datetime.min
+        elif isinstance(aat_cell.value, time):
+            self.aat = datetime.combine(date.min, aat_cell.value) - datetime.min
+        elif not isinstance(aat_cell.value, timedelta):
+            self.aat = timedelta()
+
+
+
 class Sessional_Diary:
+
+    # expected column headings for the chamber
+    # the order does not matter
 
     def __init__(self, input_excel_file_path: str, no_excel: bool):
         self.input_workbook = load_workbook(filename=input_excel_file_path,
@@ -47,9 +116,29 @@ class Sessional_Diary:
             Excel.out_wb = Workbook()  # new Excel workbook obi
 
 
+    def check_chamber(self):
+        try:
+            cmbr_data = cast(Worksheet, self.input_workbook['Main data'])
+        except Exception:
+            print('There is no "Main data" worksheet in the Excel file.',
+                  'This sheet is required.')
+            exit()
+
+        top_row = cmbr_data[0]
+        CHRow.title_index = {item.value: i for i, item in enumerate(top_row)}
+
+        if not set(CHRow.title_index.keys()).issubset(set(CHAMBER_COLS)):
+            expected_row_headings = '", "'.join(CHAMBER_COLS)
+            print('Expected the following column titles to be in the top row',
+                  f'"{expected_row_headings}"')
+
+
+
     def house_diary(self, output_folder_path: str = ''):
         """Create an (indesign formatted) XML file for the house diary section of
         the Sessional diary."""
+
+        self.check_chamber()
 
         cmbr_data = cast(Worksheet, self.input_workbook['Main data'])
 
@@ -68,7 +157,8 @@ class Sessional_Diary:
              ('After appointed time', 45)],
             table_class=CH_Diary_Table)
 
-        for c, row in enumerate(cmbr_data.iter_rows()):
+
+        for c, excel_row in enumerate(cmbr_data.iter_rows()):
             # if c > 2014:
             #     # for the moment lets just work with a quarter of the content
             #     break
@@ -79,29 +169,44 @@ class Sessional_Diary:
             if c > 11344:
                 break
 
-            row_values = [item.value for item in row[:9]]  # only interested in the first few cells
+
+            row_values = [item.value for item in excel_row[:10]]  # only interested in the first few cells
+
+            # check to see if all items in list are '' as there are lots of blank rows
+            if all(not v for v in row_values):
+                continue
+
+            row = CHRow(excel_row)
 
             # sometimes the value in the cell is not a time but is instead a datetime e.g. cell H751
-            for j in (2, 7, 8):
-                if isinstance(row_values[j], datetime):
-                    time_obj = row_values[j].time()
-                    print(f'There is a datetime at row {c + 1}:', str(row_values[j]))
-                    print(f'This has been converted to the following time: {time_obj}')
-                    row_values[j] = time_obj
+            # for j in (2, 7, 8):
+            #     if isinstance(row_values[j], datetime):
+            #         time_obj = row_values[j].time()
+            #         print(f'There is a datetime at row {c + 1}:', str(row_values[j]))
+            #         print(f'This has been converted to the following time: {time_obj}')
+            #         row_values[j] = time_obj
+
+
+
 
             # need to add up all the durations
-            if isinstance(row_values[7], time):
-                # add the duration up
-                day_total_time = datetime.combine(date.min, row_values[7]) - datetime.min
-                session_total_time += day_total_time
-            else:
-                day_total_time = timedelta(seconds=0)
+            session_total_time += row.duration
+            session_total_after_moi += row.aat
 
-            if isinstance(row_values[8], time):
-                day_total_after_moi = datetime.combine(date.min, row_values[8]) - datetime.min
-                session_total_after_moi += day_total_after_moi
-            else:
-                day_total_after_moi = timedelta(seconds=0)
+            # if isinstance(row_values[7], time):
+            #     # add the duration up
+            #     day_total_time = datetime.combine(date.min, row_values[7]) - datetime.min
+            #     session_total_time += day_total_time
+            # else:
+            #     day_total_time = timedelta(seconds=0)
+
+            # if isinstance(row_values[8], time):
+            #     day_total_after_moi = datetime.combine(date.min, row_values[8]) - datetime.min
+            #     session_total_after_moi += day_total_after_moi
+            # else:
+            #     day_total_after_moi = timedelta(seconds=0)
+
+
 
             for i, value in enumerate(row_values):
                 if value is None:
@@ -111,9 +216,8 @@ class Sessional_Diary:
                 # elif isinstance(value, datetime):
                     # print('problem:', value, sep='')
 
-            # check to see if all items in list are '' as there are lots of blank rows
-            if all(v == '' for v in row_values):
-                continue
+
+            # legacy file
 
             if row_values[0] == 'Day' and row_values[1] == 'Date':
                 continue  # ignore the row with the Date in
