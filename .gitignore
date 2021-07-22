@@ -3,6 +3,9 @@
 # mac junk
 .DS_Store
 
+# ignore .vscode project setting
+.vscode/
+
 
 
 ################################
