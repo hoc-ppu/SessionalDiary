@@ -373,7 +373,7 @@ class Sessional_Diary:
                 '8d Adjournment debates',
                 8),
             'estimates': CH_AnalysisTableSection(
-                '9: \tEstimates',
+                '9:\tEstimates',
                 '9 Estimates',
                 9),
             'money': CH_AnalysisTableSection(
