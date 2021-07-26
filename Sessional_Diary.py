@@ -569,6 +569,7 @@ class Sessional_Diary:
                 text += f'\n\t{title_number}\t{formatted_dur}\t{formatted_aat}'
         print(text)
 
+
     def wh_diary(self, output_folder_path: str = ''):
         table_ele = id_table(
             [('Time', 35), ('Subject', 400), ('Duration', 45)],
@@ -580,7 +581,7 @@ class Sessional_Diary:
                   ' not be put in the westminstar hall table. The square brackets will'
                   ' instead be left blank.')
 
-        wh_data = cast(Worksheet, self.input_workbook['Westminster Hall'])
+        wh_data = cast(Worksheet, self.input_workbook['WH data'])
 
         # output = []
         session_total_time = timedelta(seconds=0)
@@ -637,7 +638,11 @@ class Sessional_Diary:
                 # row_values[1:] because first value can still be day
                 continue
 
-            if row_values[1] == 'Date' and row_values[2] == 'Time':
+            # another differnce between the sessions
+            # if row_values[1] == 'Date' and row_values[2] == 'Time':
+            #     # ignore the row with the date in
+            #     continue
+            if row_values[0] == 'Date' and row_values[1] == 'Time':
                 # ignore the row with the date in
                 continue
 
@@ -666,13 +671,17 @@ class Sessional_Diary:
                 table_sections[-1].title += f'\u2002{row_values[1].strftime("%A %d %B %Y")}'
                 reaquire_date = False
 
-            if row_values[4].strip() == 'Daily totals' and last_date_added != current_date:
+            # difference between 2017-19 and 2020-21
+            # if row_values[4].strip() == 'Daily totals' and last_date_added != current_date:
+            if row_values[4].strip() == 'Daily total =' and last_date_added != current_date:
                 last_date_added = current_date
                 table_sections[-1].add_to(table_ele, session_total_time)
                 continue
-            if row_values[4].strip() == 'Totals for Session':
+            # another difference between 2017-19 and 2020-21
+            # if row_values[4].strip() == 'Total for Session':
+            #     continue
+            if row_values[4].strip() == 'Total for Session =':
                 continue
-
 
             if isinstance(row_values[1], datetime):
                 # there will be 3 cells per row
@@ -698,7 +707,7 @@ class Sessional_Diary:
 
     def wh_analysis(self, output_folder_path: str = ''):
 
-        wh_data = cast(Worksheet, self.input_workbook['Westminster Hall'])
+        wh_data = cast(Worksheet, self.input_workbook['WH data'])
 
         # add a new table element with headings
         table_ele = id_table([('Date', 95), ('Detail', 340), ('Duration', 45)],
@@ -849,7 +858,7 @@ class Sessional_Diary:
 
         # build up CH_contents.txt again
         # part_1 duration
-        text = f'\tPart 4\t{format_timedelta(WH_AnalysisTableSection.part_dur)}'
+        text = f'\tPart IV:\t{format_timedelta(WH_AnalysisTableSection.part_dur)}'
 
         previous_number = 0
         for table_section in t_sections.values():
@@ -859,7 +868,7 @@ class Sessional_Diary:
                 table_num = table_section.table_num
                 table_num_dur_formatted = format_timedelta(
                     WH_AnalysisTableSection.table_num_dur.get(table_num, timedelta()))
-                text += (f'\n\t{table_num}'
+                text += (f'\n\t{table_num}.'
                          f'\t{table_num_dur_formatted}')
             else:
                 try:
@@ -867,7 +876,7 @@ class Sessional_Diary:
                 except Exception:
                     title_number = table_section.title
                 formatted_dur = format_timedelta(table_section.duration)
-                text += f'\n\t{title_number}\t{formatted_dur}'
+                text += f'\n\t{title_number}.\t{formatted_dur}'
         print(text)
 
 

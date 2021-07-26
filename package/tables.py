@@ -83,9 +83,15 @@ class WH_AnalysisTableSection(_TableSection):
     def add_to(self, table):
         super().add_to(table)
         table.add_total_duration(self.duration)
+        WH_AnalysisTableSection.part_dur += self.duration
         # WH_AnalysisTableSection.contents_text += (f'{self.title}\t'
         #                                           f'{format_timedelta(self.duration)}\n')
         # WH_AnalysisTableSection.contents_dict[self.title] = self.duration
+
+        if self.table_num in WH_AnalysisTableSection.table_num_dur:
+            WH_AnalysisTableSection.table_num_dur[self.table_num] += self.duration
+        else:
+            WH_AnalysisTableSection.table_num_dur[self.table_num] = self.duration
 
         # excel stuff
         if self.excel_sheet:
