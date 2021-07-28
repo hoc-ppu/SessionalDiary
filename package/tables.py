@@ -346,6 +346,7 @@ class CH_Diary_Table(WH_Table):
         time_cell.text = format_timedelta(daily_total_duration)
 
         time_2_cell = utils.Body_line_above()
+        time_2_cell.text = format_timedelta(daily_aat_total)
 
         self.extend(make_id_cells([None]) + [total_cell, time_cell, time_2_cell])  # type: ignore
 

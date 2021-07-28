@@ -16,6 +16,7 @@ from lxml import etree
 from lxml.etree import Element
 from lxml.etree import SubElement
 from openpyxl import load_workbook, Workbook
+from openpyxl.styles.numbers import STRIP_RE
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.cell import cell as CELL
 from openpyxl.cell.cell import Cell
@@ -28,6 +29,7 @@ from package.tables import CH_DiaryDay_TableSection, WH_DiaryDay_TableSection
 from package.tables import CH_AnalysisTableSection, WH_AnalysisTableSection
 from package.tables import Excel
 from package.utilities import make_id_cells, format_timedelta
+from package.utilities import str_strip
 from package.utilities import timedelta_from_time, format_date
 from package.utilities import AID, AID5, NS_MAP
 
@@ -36,7 +38,7 @@ from package.utilities import AID, AID5, NS_MAP
 CELL.TIME_FORMATS[timedelta] = '[h].mm'
 
 
-DATE_NUM_LOOK_UP: dict[datetime, int] = {}
+DATE_NUM_LOOK_UP: dict[date, int] = {}
 
 
 #  We expect the following column headings for the
@@ -51,43 +53,99 @@ DURATION = 'DurationFx'
 AAT = 'AAT'
 
 CHAMBER_COLS = [DAY, DATE, TIME, SUBJECT1, SUBJECT2, TAGS, DURATION, AAT]
+WH_COLS = [DAY, DATE, TIME, SUBJECT1, SUBJECT2, TAGS, DURATION]
 
+CH_SHEET_TITLE = 'Chamber'
+WH_SHEET_TITLE = 'Westminster Hall'
 
-class CHRow:
+class WHRow:
     title_index: dict[str, int] = {}
 
     def __init__(self, excel_row: Sequence[Cell]):
-        if not CHRow.title_index:
+        t_index = WHRow.title_index
+
+        self.inner_init(excel_row, t_index)
+
+    def inner_init(self, excel_row: Sequence[Cell], t_index: dict[str, int]):
+
+        if not t_index:
             print('Error: title_index not set up')
             exit()
-        self.day = excel_row[CHRow.title_index[DAY]].value
-        self.date = excel_row[CHRow.title_index[DATE]].value
-        time_cell = excel_row[CHRow.title_index[TIME]]
-        self.time = time_cell.value
+
+
+        self.day: int
+        _day = excel_row[t_index[DAY]].value
+        if isinstance(_day, int):
+            self.day = _day
+        else:
+            print(excel_row[t_index[DAY]].coordinate,
+                  ' has value ',
+                  _day)
+            raise ValueError
+
+        _date = excel_row[t_index[DATE]].value
+
+        self.date: date
+        if isinstance(_date, date):
+            self.date = _date
+        else:
+            print(excel_row[t_index[DATE]].coordinate,
+                  ' has value ',
+                  _date)
+            raise ValueError
+
+        self.time: time
+        time_cell = excel_row[t_index[TIME]]
+        _time = time_cell.value
+        if isinstance(_time, time):
+            self.time = _time
+        else:
+            print(excel_row[t_index[TIME]].coordinate,
+                  ' has value ',
+                  _date)
+            raise ValueError
+
         if isinstance(self.time, datetime):
             time_obj = self.time.time()
             print(f'There is a datetime at cell {time_cell.coordinate}:', str(self.time))
             print(f'This has been converted to the following time: {time_obj}')
             self.time = time_obj
 
-        self.subject1 = excel_row[CHRow.title_index[SUBJECT1]].value
-        self.subject2 = excel_row[CHRow.title_index[SUBJECT2]].value
-        self.tags = excel_row[CHRow.title_index[TAGS]].value
-        duration_cell = excel_row[CHRow.title_index[DURATION]]
+        self.subject1: str = str_strip(
+            excel_row[t_index[SUBJECT1]].value)
+
+        self.subject2: str = str_strip(
+            excel_row[t_index[SUBJECT2]].value)
+
+        self.tags = str_strip(
+            excel_row[t_index[TAGS]].value)
+
+
+        duration_cell = excel_row[t_index[DURATION]]
         self.duration: timedelta
         if isinstance(duration_cell.value, datetime):
             # don't trust the datetime only the time
             time_obj = duration_cell.value.time()
-            print(f'There is a datetime at cell {duration_cell.coordinate}:', str(duration_cell.value))
+            print(f'There is a datetime at cell {duration_cell.coordinate}:',
+                  str(duration_cell.value))
             print(f'This has been converted to the following time: {time_obj}')
-            self.aat = datetime.combine(date.min, time_obj) - datetime.min
+            self.duration = datetime.combine(date.min, time_obj) - datetime.min
         elif isinstance(duration_cell.value, time):
-            self.aat = datetime.combine(date.min, duration_cell.value) - datetime.min
+            self.duration = datetime.combine(date.min, duration_cell.value) - datetime.min
         elif not isinstance(duration_cell.value, timedelta):
-            print(f'Problem in cell {duration_cell.coordinate}')
-            self.aat = timedelta()
+            # log this
+            # print(f'Problem in cell {duration_cell.coordinate}')
+            self.duration = timedelta()
 
-        aat_cell = excel_row[CHRow.title_index[AAT]]
+class CHRow(WHRow):
+    title_index: dict[str, int] = {}
+
+    def __init__(self, excel_row: Sequence[Cell]):
+
+        t_index = CHRow.title_index
+        super().inner_init(excel_row, t_index)
+
+        aat_cell = excel_row[t_index[AAT]]
         self.aat: timedelta
         if isinstance(aat_cell.value, datetime):
             # don't trust the datetime only the time
@@ -99,6 +157,7 @@ class CHRow:
             self.aat = datetime.combine(date.min, aat_cell.value) - datetime.min
         elif not isinstance(aat_cell.value, timedelta):
             self.aat = timedelta()
+
 
 
 
@@ -118,19 +177,39 @@ class Sessional_Diary:
 
     def check_chamber(self):
         try:
-            cmbr_data = cast(Worksheet, self.input_workbook['Main data'])
+            cmbr_data = cast(Worksheet, self.input_workbook[CH_SHEET_TITLE])
         except Exception:
-            print('There is no "Main data" worksheet in the Excel file.',
+            print('There is no "Chamber" worksheet in the Excel file.',
                   'This sheet is required.')
             exit()
 
-        top_row = cmbr_data[0]
+        top_row = cmbr_data[1]
         CHRow.title_index = {item.value: i for i, item in enumerate(top_row)}
 
-        if not set(CHRow.title_index.keys()).issubset(set(CHAMBER_COLS)):
+        if not set(CHAMBER_COLS).issubset(set(CHRow.title_index.keys())):
             expected_row_headings = '", "'.join(CHAMBER_COLS)
-            print('Expected the following column titles to be in the top row',
+            print(f'Expected the following column titles '
+                  f'to be in the top row of the {CHAMBER_COLS} sheet\n',
                   f'"{expected_row_headings}"')
+
+    def check_wh(self):
+        try:
+            wh_data = cast(Worksheet, self.input_workbook[WH_SHEET_TITLE])
+        except Exception:
+            print(f'There is no "{WH_SHEET_TITLE}" worksheet in the Excel file.',
+                  'This sheet is required.')
+            exit()
+
+        top_row = wh_data[1]
+        WHRow.title_index = {item.value: i for i, item in enumerate(top_row)}
+
+        if not set(WH_COLS).issubset(set(WHRow.title_index.keys())):
+            expected_row_headings = '", "'.join(WH_COLS)
+            print(f'Expected the following column titles '
+                  f'to be in the top row of the {WH_SHEET_TITLE} sheet',
+                  f'"{expected_row_headings}"',
+                  f'Got {WHRow.title_index.keys()}',
+                  sep='\n')
 
 
 
@@ -140,16 +219,16 @@ class Sessional_Diary:
 
         self.check_chamber()
 
-        cmbr_data = cast(Worksheet, self.input_workbook['Main data'])
+        cmbr_data = cast(Worksheet, self.input_workbook[CH_SHEET_TITLE])
 
         session_total_time      = timedelta(seconds=0)
-        day_total_time          = timedelta(seconds=0)
+        # day_total_time          = timedelta(seconds=0)
         session_total_after_moi = timedelta(seconds=0)
-        day_total_after_moi     = timedelta(seconds=0)
+        # day_total_after_moi     = timedelta(seconds=0)
 
         table_sections = []
 
-        day_number_counter = 0
+        # day_number_counter = 0
 
         table_ele = id_table(
             [('Time', 35), ('Subject', 310),
@@ -157,106 +236,70 @@ class Sessional_Diary:
              ('After appointed time', 45)],
             table_class=CH_Diary_Table)
 
+        previous_day = 1
 
         for c, excel_row in enumerate(cmbr_data.iter_rows()):
-            # if c > 2014:
-            #     # for the moment lets just work with a quarter of the content
-            #     break
-
-            # global counter
-            # counter = c
-
-            if c > 11344:
-                break
-
-
-            row_values = [item.value for item in excel_row[:10]]  # only interested in the first few cells
-
-            # check to see if all items in list are '' as there are lots of blank rows
-            if all(not v for v in row_values):
+            if c == 0:
                 continue
 
-            row = CHRow(excel_row)
+            # check to see if all items in list are '' as there can be blank rows
+            if all(not v for v in excel_row[:10]):
+                continue
 
-            # sometimes the value in the cell is not a time but is instead a datetime e.g. cell H751
-            # for j in (2, 7, 8):
-            #     if isinstance(row_values[j], datetime):
-            #         time_obj = row_values[j].time()
-            #         print(f'There is a datetime at row {c + 1}:', str(row_values[j]))
-            #         print(f'This has been converted to the following time: {time_obj}')
-            #         row_values[j] = time_obj
+            entry = CHRow(excel_row)
 
-
-
-
-            # need to add up all the durations
-            session_total_time += row.duration
-            session_total_after_moi += row.aat
-
-            # if isinstance(row_values[7], time):
-            #     # add the duration up
-            #     day_total_time = datetime.combine(date.min, row_values[7]) - datetime.min
-            #     session_total_time += day_total_time
-            # else:
-            #     day_total_time = timedelta(seconds=0)
-
-            # if isinstance(row_values[8], time):
-            #     day_total_after_moi = datetime.combine(date.min, row_values[8]) - datetime.min
-            #     session_total_after_moi += day_total_after_moi
-            # else:
-            #     day_total_after_moi = timedelta(seconds=0)
-
-
-
-            for i, value in enumerate(row_values):
-                if value is None:
-                    row_values[i] = ''
-                if isinstance(value, time):
-                    row_values[i] = value.strftime('%H.%M')
-                # elif isinstance(value, datetime):
-                    # print('problem:', value, sep='')
-
-
-            # legacy file
-
-            if row_values[0] == 'Day' and row_values[1] == 'Date':
-                continue  # ignore the row with the Date in
-
-            if isinstance(row_values[0], int) and isinstance(row_values[1], datetime):
-
-                # we will calculate the day number rather than getting the number from excel
-                day_number_counter += 1
+            if c == 1:
                 table_sections.append(CH_DiaryDay_TableSection(
-                    f'{day_number_counter}.\u2002{row_values[1].strftime("%A %d %B %Y")}'))
+                    f'{entry.day}.\u2002{entry.date.strftime("%A %d %B %Y")}'))
+
+
+            if entry.day != previous_day:
+                previous_day = entry.day
+
+                # day_total_time = timedelta()
+                # day_total_after_moi = timedelta()
+
+                table_sections[-1].add_to(table_ele, session_total_time, session_total_after_moi)
+
+                table_sections.append(CH_DiaryDay_TableSection(
+                    f'{entry.day}.\u2002{entry.date.strftime("%A %d %B %Y")}'))
 
                 # add the date and number to the lookup.
                 # this is so this info can also be put in the WH able
-                DATE_NUM_LOOK_UP[row_values[1]] = day_number_counter
+                DATE_NUM_LOOK_UP[entry.date] = entry.day
 
-            if row_values[4].strip() == 'Daily totals':
-                table_sections[-1].add_to(table_ele, session_total_time, session_total_after_moi)
-                continue
-            if row_values[4].strip() == 'Totals for Session':
-                continue
+            # else:
+            #     day_total_time += entry.duration
+            #     day_total_after_moi += entry.aat
 
-            else:
-                # there will be 5 cells per row
-                cell = ID_Cell()
-                # text_for_middle_cell = SubElement(cell, 'text')
-                if row_values[3]:
-                    # bold = SubElement(text_for_middle_cell, 'Bold')
-                    bold = SubElement(cell, 'Bold')
-                    bold.text = row_values[3]
-                    if any(row_values[4:6]):
-                        try:
-                            bold.tail = (': ' + ' '.join(row_values[4:6])).strip()
-                        except TypeError:
-                            print(f'Error in line {c}')
-                            print(row_values)
+            # need to add up all the durations
+            session_total_time += entry.duration
+            session_total_after_moi += entry.aat
 
-                table_sections[-1].add_row(
-                    [row_values[2], cell, *row_values[6:9]],
-                    duration=day_total_time, aat=day_total_after_moi)
+            # there will be 5 cells per row
+            cell = ID_Cell()
+
+            # create a Bold element. Optionally can have non bold tail text
+            bold = SubElement(cell, 'Bold')
+            bold.text = entry.subject1
+            if entry.subject2:
+                bold.tail = entry.subject2.strip()  # this text will not be bold
+
+
+            duration = entry.duration
+            if duration == timedelta():
+                duration = ''
+            aat = entry.aat
+            if aat == timedelta():
+                aat = ''
+
+            table_sections[-1].add_row(
+                [entry.time.strftime('%H.%M'), cell, entry.tags, duration, aat],
+                duration=entry.duration, aat=entry.aat)
+
+        # need to add the last table section
+        if len(table_sections) > 0:
+            table_sections[-1].add_to(table_ele, session_total_time, session_total_after_moi)
 
 
         # now output XML (for InDesign) file
@@ -269,7 +312,7 @@ class Sessional_Diary:
     def house_analysis(self, output_folder_path: str = ''):
 
         # we're only interested in the main data here
-        main_data = self.input_workbook['Main data']
+        main_data = self.input_workbook[CH_SHEET_TITLE]
 
         # add heading elements to table
         table_ele = id_table(
@@ -284,7 +327,7 @@ class Sessional_Diary:
                 '1 Addresses other than Prayers',
                 1),
             'second_readings': CH_AnalysisTableSection(
-                '2a:\tGovernment Bills: Read a second tim and committed to Public Bill Committee',
+                '2a:\tGovernment Bills: Read a second time and committed to Public Bill Committee',
                 '2a Govt Bills 2R & committed',
                 2),
             'cwh_bills': CH_AnalysisTableSection(
@@ -438,193 +481,200 @@ class Sessional_Diary:
                 15),
         }
 
-        for c, row in enumerate(main_data.iter_rows()):  # type: ignore
+        for c, excel_row in enumerate(main_data.iter_rows()):  # type: ignore
+
+            if c == 0:
+                # top row just has headings in
+                continue
 
             # only interested in vfg the first few cells
-            row_values = [item.value for item in row[:9]]
+            # row_values = [item.value for item in excel_row[:9]]
 
             # check to see if all items in list are None as there are lots of blank rows
-            if all(v is None for v in row_values):
+            if all(v is None for v in excel_row[:9]):
                 continue
 
             # sometimes the value in the cell is not a time but is instead a datetime
-            for j in (7, 8):
-                if isinstance(row_values[j], datetime):
-                    time_obj = row_values[j].time()
-                    print(f'There is a datetime at row {c + 1}: {row_values[j]}.  '
-                          f'Converting to time: {time_obj}')
-                    row_values[j] = time_obj
+            # for j in (7, 8):
+            #     if isinstance(row_values[j], datetime):
+            #         time_obj = row_values[j].time()
+            #         print(f'There is a datetime at row {c + 1}: {row_values[j]}.  '
+            #               f'Converting to time: {time_obj}')
+            #         row_values[j] = time_obj
 
-            # we want empty cells to be returned as ''
-            for i, value in enumerate(row_values):
-                if value is None:
-                    row_values[i] = ''
+            # # we want empty cells to be returned as ''
+            # for i, value in enumerate(row_values):
+            #     if value is None:
+            #         row_values[i] = ''
+
+            entry = CHRow(excel_row)
 
             # unpack the row_values into variables
-            col_day        = row_values[0]
-            col_date       = row_values[1]
-            # col_time     = row_values[2]  # not needed
-            col_subject    = row_values[3]
-            col_subject2   = row_values[4]
-            # col_subject3   = row_values[5]
-            col_exit       = row_values[6]
-            col_duration   = row_values[7]
-            col_a_a_t      = row_values[8]
+            # col_day        = row_values[0]
+            # col_date       = row_values[1]
+            # # col_time     = row_values[2]  # not needed
+            # col_subject    = row_values[3]
+            # col_subject2   = row_values[4]
+            # # col_subject3   = row_values[5]
+            # col_exit       = row_values[6]
+            # col_duration   = row_values[7]
+            # col_a_a_t      = row_values[8]
 
-            if col_day == 'Day' and col_date == 'Date':
-                # ignore rows with column titles in
-                continue
+            # if entry.day == 'Day' and col_date == 'Date':
+            #     # ignore rows with column titles in
+            #     continue
 
-            if not isinstance(col_date, date):
-                # assume we can skip any records without a date
-                continue
+            # if not isinstance(col_date, date):
+            #     # assume we can skip any records without a date
+            #     continue
 
-            forematted_date = format_date(col_date)
+            forematted_date = format_date(entry.date)  # type: ignore
 
             # col_time = Time.strip().lower()
-            col_subject = col_subject.strip().lower()
-            col_exit    = col_exit.strip().lower()
+            subject_lower = entry.subject1.lower()
+            col_exit    = entry.tags.lower()
 
             # we need timedelta objects
-            col_duration_td = timedelta_from_time(col_duration, default=timedelta(seconds=0))
-            col_a_a_t_td = timedelta_from_time(col_a_a_t, default=timedelta(seconds=0))
+            # col_duration_td = timedelta_from_time(entry.duration, default=timedelta(seconds=0))
+            # col_a_a_t_td = timedelta_from_time(entry.aat, default=timedelta(seconds=0))
 
             cells_vals = [
                 forematted_date,
-                col_subject2,
-                col_duration_td,
-                col_a_a_t_td
+                entry.subject2,
+                entry.duration,
+                entry.aat
             ]
 
-            fullrow = [cells_vals, col_duration_td, col_a_a_t_td]
+            fullrow = [cells_vals, entry.duration, entry.aat]
 
             # Table 1 Addresses other than Prayers
-            if col_subject == 'address':
+            if subject_lower == 'address':
                 t_sections['addresses'].add_row(*fullrow)
             # Table 2a Government bills second reading
             if '[pmb]' not in col_exit:
                 # here we have items that are not explicitly private members' bills
-                if col_subject == 'second reading' and 'pbc' in col_exit:
+                if subject_lower == 'second reading' and 'pbc' in col_exit:
                     # gov bill second reading
                     t_sections['second_readings'].add_row(*fullrow)
 
-                if 'committee of the whole house' in col_subject:
+                if 'committee of the whole house' in subject_lower:
                     t_sections['cwh_2_bills'].add_row(*fullrow)
-                if 'consideration' in col_subject:
+                if 'consideration' in subject_lower:
                     # gov bill consideration
                     t_sections['gov_bil_cons'].add_row(*fullrow)
-                if col_subject == 'third reading':
+                if subject_lower == 'third reading':
                     # gov bill third reading
                     t_sections['gov_bill_3rd'].add_row(*fullrow)
-                if col_subject == 'lords amendments':
+                if subject_lower == 'lords amendments':
                     # gov bill lords amendments
                     t_sections['gov_bill_lord_amend'].add_row(*fullrow)
                 gov_bill_other_subs = ('second and third reading',
                                        'money resolution',
                                        'lords amendments')
-                if ('legislative grand committee' in col_subject
-                        or col_subject in gov_bill_other_subs):
+                if ('legislative grand committee' in subject_lower
+                        or subject_lower in gov_bill_other_subs):
                     t_sections['gov_bill_other'].add_row(*fullrow)
 
-            if (col_subject == 'second reading'
-                    and 'committee of the whole house' in col_subject2.lower()):
+            if (subject_lower == 'second reading'
+                    and 'committee of the whole house' in entry.subject2.lower()):
                 t_sections['cwh_bills'].add_row(*fullrow)
 
-            if col_subject.lower() in ('general debate', 'general motion'):
+            if subject_lower.lower() in ('general debate', 'general motion'):
                 t_sections['alloc_time'].add_row(*fullrow)
 
             if '[pmb]' in col_exit:
-                if col_subject == 'second reading':
+                if subject_lower == 'second reading':
                     # private members' bills second reading
                     t_sections['pmbs_2r'].add_row(*fullrow)
-                elif col_subject not in ('ten minute rule motion',
-                                         'point of order', 'remaining orders'):
+                elif subject_lower not in ('ten minute rule motion',
+                                           'point of order', 'remaining orders'):
                     # private members' bills other
                     # this does not include ten minute rules
                     t_sections['pmbs_other'].add_row(*fullrow)
 
-            if 'private business' in col_subject:
+            if 'private business' in subject_lower:
                 t_sections['private_business'].add_row(*fullrow)
 
-            if col_subject == 'eu documents':
+            if subject_lower == 'eu documents':
                 t_sections['eu_docs'].add_row(*fullrow)
 
-            if col_subject in ('government motion', 'government motions', 'business motion'):
+            if subject_lower in ('government motion', 'government motions', 'business motion'):
                 t_sections['gov_motions'].add_row(*fullrow)
 
-            if col_subject in ('general motion'):
+            if subject_lower in ('general motion'):
                 t_sections['gov_motions_gen'].add_row(*fullrow)
 
-            if col_subject == 'general debate':
+            if subject_lower == 'general debate':
                 t_sections['gen_debates'].add_row(*fullrow)
 
-            if col_subject == 'opposition day':
+            if subject_lower == 'opposition day':
                 t_sections['opposition_days'].add_row(*fullrow)
 
-            if col_subject == 'opposition motion in government time':
+            if subject_lower == 'opposition motion in government time':
                 t_sections['oppo_motions_in_gov_time'].add_row(*fullrow)
-            if col_subject == 'backbench business':
+            if subject_lower == 'backbench business':
                 t_sections['backbench_business'].add_row(*fullrow)
-            if col_subject in ('private member\'s motion',
-                               'private member’s motion',
-                               'private members\' motion'):
+            if subject_lower in ('private member\'s motion',
+                                 'private member’s motion',
+                                 'private members\' motion'):
                 t_sections['pm_motion'].add_row(*fullrow)
-            if col_subject == 'ten minute rule motion':
+            if subject_lower == 'ten minute rule motion':
                 t_sections['ten_min_motion'].add_row(*fullrow)
-            if 'no. 24 debate' in col_subject:
+            if 'no. 24 debate' in subject_lower:
                 t_sections['emergency_debates'].add_row(*fullrow)
-            if 'adjournment' in col_subject:
+            if 'adjournment' in subject_lower:
                 t_sections['adjournment_debates'].add_row(*fullrow)
-            if col_subject == 'estimates day':
+            if subject_lower == 'estimates day':
                 t_sections['estimates'].add_row(*fullrow)
-            if col_subject == 'money resolution':
+            if subject_lower == 'money resolution':
                 t_sections['money'].add_row(*fullrow)
-            if col_subject == 'ways and means':
+            if subject_lower == 'ways and means':
                 t_sections['ways_and_means'].add_row(*fullrow)
-            if 'affirmative' in col_subject:
+            if 'affirmative' in subject_lower:
                 t_sections['affirmative_sis'].add_row(*fullrow)
-            if col_subject == 'negative statutory instrument':
+            if subject_lower == 'negative statutory instrument':
                 t_sections['negative_sis'].add_row(*fullrow)
-            if col_subject == 'questions':
+            if subject_lower == 'questions':
                 t_sections['questions'].add_row(*fullrow)
-            if col_subject == 'topical questions':
+            if subject_lower == 'topical questions':
                 t_sections['topical_questions'].add_row(*fullrow)
-            if col_subject in ('urgent question', 'urgent questions'):
+            if subject_lower in ('urgent question', 'urgent questions'):
                 t_sections['urgent_questions'].add_row(*fullrow)
-            if col_subject == 'statement':
+            if subject_lower == 'statement':
                 t_sections['statements'].add_row(*fullrow)
-            if col_subject == 'business statement':
+            if subject_lower == 'business statement':
                 t_sections['business_statements'].add_row(*fullrow)
-            if 'committee statement' in col_subject:
+            if 'committee statement' in subject_lower:
                 t_sections['committee_statements'].add_row(*fullrow)
-            if 'no. 24 application' in col_subject:
+            if 'no. 24 application' in subject_lower:
                 t_sections['app_for_emerg_debate'].add_row(*fullrow)
-            if col_subject in ('point of order', 'points of order'):
+            if subject_lower in ('point of order', 'points of order'):
                 t_sections['points_of_order'].add_row(*fullrow)
-            if 'public petition' in col_subject:
+            if 'public petition' in subject_lower:
                 t_sections['public_petitions'].add_row(*fullrow)
-            if col_subject == 'prayers':
+            if subject_lower == 'prayers':
                 # prayers are not itemised
                 # t_sections['prayers'].add_row(*fullrow)
-                t_sections['prayers'].duration += col_duration_td
-                t_sections['prayers'].after_appointed_time += col_a_a_t_td
+                t_sections['prayers'].duration += entry.duration
+                t_sections['prayers'].after_appointed_time += entry.aat
 
             miscellaneous_options = ('tributes', 'election of a speaker',
                                      'suspension', 'observation of a minute\'s silence',
                                      'personal statement',
                                      'presentation of private members\' bills')
-            if col_subject in miscellaneous_options or 'message to attend the lords' in col_subject:
+            if (subject_lower in miscellaneous_options
+                    or 'message to attend the lords' in subject_lower):
 
                 # for Miscellaneous we will also include stuff in col_subject3
                 misc_cells = [
                     forematted_date,
-                    ': '.join([col_subject.capitalize(), col_subject2]).rstrip(': '),
+                    ': '.join([entry.subject1, entry.subject2]).rstrip(': '),
                     # formatted_duration,
                     # formatted_a_a_t
-                    col_duration_td,
-                    col_a_a_t_td
+                    entry.duration,
+                    entry.aat
                 ]
-                t_sections['miscellaneous'].add_row(misc_cells, col_duration_td, col_a_a_t_td)
+                t_sections['miscellaneous'].add_row(misc_cells, entry.duration, entry.aat)
 
         for table_section in t_sections.values():
             if len(table_section) > 0:
@@ -674,6 +724,9 @@ class Sessional_Diary:
         print(text)
 
     def wh_diary(self, output_folder_path: str = ''):
+
+        self.check_wh()
+
         table_ele = id_table(
             [('Time', 35), ('Subject', 400), ('Duration', 45)],
             table_class=WH_Diary_Table
@@ -684,113 +737,68 @@ class Sessional_Diary:
                   ' not be put in the westminstar hall table. The square brackets will'
                   ' instead be left blank.')
 
-        wh_data = cast(Worksheet, self.input_workbook['Westminster Hall'])
+        wh_data = cast(Worksheet, self.input_workbook[WH_SHEET_TITLE])
 
         # output = []
         session_total_time = timedelta(seconds=0)
-        day_total_time     = timedelta(seconds=0)
+        # day_total_time     = timedelta(seconds=0)
 
         table_sections = []
 
-        # create an element to be used for subheadings as
-        # its contents must be built up in several loops
-        # subheading = None
-        reaquire_date = False
+        previous_day = 1
 
-        current_date = datetime.min
-        last_date_added = datetime.min
+        for c, excel_row in enumerate(wh_data.iter_rows()):
 
-        day_number_counter = 0
-
-        for c, row in enumerate(wh_data.iter_rows()):
-            # if c > 4237:
-            #     # for the moment lets just work with a quarter of the content
-            #     break
-
-            row_values = [item.value for item in row[:8]]  # only interested in the first few cells
-
-            # if 7123 < c < 7290:
-            #     if not all(v is None for v in row_values):
-            #         print(row_values)
-
-            # sometimes the value in the cell is not a time but is instead a datetime e.g. cell H751
-            for j in (2, 7):
-                if isinstance(row_values[j], datetime):
-                    time_obj = row_values[j].time()
-                    # print(f'There is a datetime at row {c + 1}:', str(row_values[j]))
-                    # print(f'This has been converted to the following time: {time_obj}')
-                    row_values[j] = time_obj
-
-            # need to add up all the durations
-            if isinstance(row_values[7], time):  # col G [7] is sometimes hidden
-                # add the duration up
-                day_total_time = datetime.combine(date.min, row_values[7]) - datetime.min
-                session_total_time += day_total_time
-                # print(day_total_time)
-            else:
-                day_total_time = timedelta(seconds=0)
-
-            for i, value in enumerate(row_values):
-                if value is None:
-                    row_values[i] = ''
-                if isinstance(value, time):
-                    row_values[i] = value.strftime('%H.%M')
-
-            # check to see if all items in list are '' as there are lots of blank rows
-            if all(v == '' for v in row_values[1:]):
-                # row_values[1:] because first value can still be day
+            if c == 0:
                 continue
 
-            if row_values[1] == 'Date' and row_values[2] == 'Time':
-                # ignore the row with the date in
-                continue
+            entry = WHRow(excel_row)
 
-            if isinstance(row_values[0], int) and isinstance(row_values[1], datetime):
+            if c == 1:
+                chamber_daynum = DATE_NUM_LOOK_UP.get(entry.date, '')
+                sec_title = (f'{entry.day}.\u2002[{chamber_daynum}]'
+                             f'\u2002{entry.date.strftime("%A %d %B %Y")}')
+                table_sections.append(WH_DiaryDay_TableSection(sec_title))
+
+
+            if entry.day != previous_day:
+                previous_day = entry.day
+
+                # day_total_time = timedelta()
+
+                table_sections[-1].add_to(table_ele, session_total_time)
 
                 # chamber_day_number = f'{row_values[0]}.'.strip()
 
                 # if avaliable we will get the day number of the chamber for this date
-                chamber_daynum = DATE_NUM_LOOK_UP.get(row_values[1], '')
+                chamber_daynum = DATE_NUM_LOOK_UP.get(entry.date, '')
                 # actually we will calculate the day number
                 # rather than getting the number from excel
-                day_number_counter += 1
+                # day_number_counter += 1
 
-                tbl_sec_title_without_date = f'{day_number_counter}.\u2002[{chamber_daynum}] '
+                tbl_sec_title_without_date = (f'{entry.day}.\u2002[{chamber_daynum}]'
+                                              f'\u2002{entry.date.strftime("%A %d %B %Y")}')
                 table_sections.append(WH_DiaryDay_TableSection(tbl_sec_title_without_date))
 
-                reaquire_date = True
-            else:
-                pass
-                # print(type(row_values[0]), f'row_values[0]={row_values[0]}')
 
-            if isinstance(row_values[1], datetime) and reaquire_date:
+            # need to add up all the durations
+            session_total_time += entry.duration
 
-                current_date = row_values[1]
+            # day_total_time += entry.duration
 
-                table_sections[-1].title += f'\u2002{row_values[1].strftime("%A %d %B %Y")}'
-                reaquire_date = False
+            # there will be 3 cells per row
+            cell = ID_Cell()
+            # text_for_middle_cell = SubElement(cell, 'text')
+            if entry.subject1:
+                bold = SubElement(cell, 'Bold')
+                bold.text = entry.subject1
+                if entry.subject2:
+                    bold.tail = f': {entry.subject2}'
+                cells = make_id_cells([entry.time.strftime('%H.%M'), cell, entry.duration])  # type: ignore
+                table_sections[-1].add_row(cells, entry.duration)
 
-            if row_values[4].strip() == 'Daily totals' and last_date_added != current_date:
-                last_date_added = current_date
-                table_sections[-1].add_to(table_ele, session_total_time)
-                continue
-            if row_values[4].strip() == 'Totals for Session':
-                continue
-
-
-            if isinstance(row_values[1], datetime):
-                # there will be 3 cells per row
-                cell = ID_Cell()
-                # text_for_middle_cell = SubElement(cell, 'text')
-                if row_values[2]:
-                    bold = SubElement(cell, 'Bold')
-                    bold.text = row_values[3]
-                    if row_values[4]:
-                        bold.tail = f': {row_values[4]}'.strip()
-                    cells = (make_id_cells([row_values[2]])
-                             + [cell]
-                             + make_id_cells([row_values[7]]))  # type: ignore
-                    table_sections[-1].add_row(cells, day_total_time)
+        # last table section will not have been added in the above loop
+        table_sections[-1].add_to(table_ele, session_total_time)
 
 
         # now create XML for InDesign
@@ -845,94 +853,100 @@ class Sessional_Diary:
                 7)
         }
 
-        for c, row in enumerate(wh_data.iter_rows()):
+        for c, excel_row in enumerate(wh_data.iter_rows()):
+            if c == 0:
+                continue
             # if c > 1500:
             #     # for the moment lets just work with a quarter of the content
             #     break
 
-            row_values = [item.value for item in row[:8]]  # only interested in the first few cells
+            # excel_row = [item.value for item in row[:8]]  # only interested in the first few cells
 
             # check to see if all items in list are None as there are lots of blank rows
-            if all(bool(v) is False for v in row_values):
+            if all(bool(v) is False for v in excel_row[:8]):
                 continue
 
-            if not isinstance(row_values[2], time):
-                # assume we can skip any records without a time
-                continue
-            if row_values[1] == 'Date' and row_values[2] == 'Time':
-                # ignore the row with the date in
-                continue
+            entry = WHRow(excel_row)
 
-            if row_values[4] in ('Daily totals', 'Totals for Session'):
-                continue
+            # if not isinstance(row_values[2], time):
+            #     # assume we can skip any records without a time
+            #     continue
+            # if row_values[1] == 'Date' and row_values[2] == 'Time':
+            #     # ignore the row with the date in
+            #     continue
+
+            # if row_values[4] in ('Daily totals', 'Totals for Session'):
+            #     continue
             # if not row_values[0] or isinstance(row_values[0], int):
             #     # some values are blank or are numbers
             #     continue
 
             # sometimes the value in the cell is not a time but is instead a datetime e.g. cell H751
-            for j in (2, 7):
-                if isinstance(row_values[j], datetime):
-                    time_obj = row_values[j].time()
-                    print(f'There is a datetime at row {c + 1}:', str(row_values[j]))
-                    print(f'This has been converted to the following time: {time_obj}')
-                    row_values[j] = time_obj
+            # for j in (2, 7):
+            #     if isinstance(row_values[j], datetime):
+            #         time_obj = row_values[j].time()
+            #         print(f'There is a datetime at row {c + 1}:', str(row_values[j]))
+            #         print(f'This has been converted to the following time: {time_obj}')
+            #         row_values[j] = time_obj
 
-            for i, value in enumerate(row_values):
-                if value is None:
-                    row_values[i] = ''
-                if isinstance(value, time):
-                    row_values[i] = value.strftime('%H.%M')
+            # for i, value in enumerate(row_values):
+            #     if value is None:
+            #         row_values[i] = ''
+            #     if isinstance(value, time):
+            #         row_values[i] = value.strftime('%H.%M')
 
 
-            if not isinstance(row_values[1], datetime):
-                print(f'Error in row {c}, expected datetime but got, {row_values[0]}')
-            elif not isinstance(row_values[3], str):
-                print(f'Error in row {c}, expected str but got, {row_values[3]}')
-            else:
-                forematted_date = format_date(row_values[1])
+            # if not isinstance(row_values[1], datetime):
+            #     print(f'Error in row {c}, expected datetime but got, {row_values[0]}')
+            # elif not isinstance(row_values[3], str):
+            #     print(f'Error in row {c}, expected str but got, {row_values[3]}')
+            # else:
+            #     forematted_date = format_date(row_values[1])
 
-                # cells = [forematted_date, row_values[4], row_values[7]]
-                col_3_val = row_values[3].strip()
-                # col_4_val = row_values[4].strip()
-                hours_mins = row_values[7].split('.')
-                if len(hours_mins) == 2:
-                    duration = timedelta(hours=int(hours_mins[0]), minutes=int(hours_mins[1]))
-                else:
-                    duration = timedelta()
-                cells_vals = [
-                    forematted_date,
-                    row_values[4],
-                    duration,
-                ]
-                fullrow = [cells_vals, duration]
-                if col_3_val in ('Debate (Private Member’s)', 'Debate (Private Member\'s)'):
-                    t_sections['private'].add_row(*fullrow)
-                elif col_3_val in ('Debate (BBCom recommended)',
-                                   'Debate (BBCom)', 'Debate (BBBCom)'):
-                    t_sections['bbcom'].add_row(*fullrow)
-                    # bbcom_duration += duration
-                    # bbcom_cells.extend(cells)
-                elif col_3_val in ('Debate (Liaison Committee)', ):
-                    t_sections['liaison'].add_row(*fullrow)
-                    # liaison_duration += duration
-                    # liaison_cells.extend(cells)
-                elif col_3_val in ('Petition', 'Petitions'):
-                    t_sections['e_petition'].add_row(*fullrow)
-                    # e_petition_duration += duration
-                    # e_petition_cells.extend(cells)
-                elif col_3_val in ('Suspension',):
-                    t_sections['suspension'].add_row(*fullrow)
-                    # suspension_duration += duration
-                    # suspension_cells.extend(cells)
-                elif col_3_val in ('Committee Statement',):
-                    t_sections['statements'].add_row(*fullrow)
-                elif col_3_val in ('Time limit', 'Time Limit',
-                                   'Observation of a period of silence'):
-                    t_sections['miscellaneous'].add_row(*fullrow)
-                    # miscellaneous_duration += duration
-                    # miscellaneous.extend(cells)
-                # if col_3_val == '[exit]':
-                #     t_sections['brexit'].add_row(cells, duration)
+            forematted_date = format_date(entry.date)  # type: ignore
+
+            # cells = [forematted_date, row_values[4], row_values[7]]
+            # col_3_val = row_values[3].strip()
+            # col_4_val = row_values[4].strip()
+            # hours_mins = row_values[7].split('.')
+            # if len(hours_mins) == 2:
+            #     duration = timedelta(hours=int(hours_mins[0]), minutes=int(hours_mins[1]))
+            # else:
+            #     duration = timedelta()
+            cells_vals = [
+                forematted_date,
+                entry.subject2,
+                entry.duration,
+            ]
+            fullrow = [cells_vals, entry.duration]
+            if entry.subject1 in ('Debate (Private Member’s)', 'Debate (Private Member\'s)'):
+                t_sections['private'].add_row(*fullrow)
+            elif entry.subject1 in ('Debate (BBCom recommended)',
+                                    'Debate (BBCom)', 'Debate (BBBCom)'):
+                t_sections['bbcom'].add_row(*fullrow)
+                # bbcom_duration += duration
+                # bbcom_cells.extend(cells)
+            elif entry.subject1 in ('Debate (Liaison Committee)', ):
+                t_sections['liaison'].add_row(*fullrow)
+                # liaison_duration += duration
+                # liaison_cells.extend(cells)
+            elif entry.subject1 in ('Petition', 'Petitions'):
+                t_sections['e_petition'].add_row(*fullrow)
+                # e_petition_duration += duration
+                # e_petition_cells.extend(cells)
+            elif entry.subject1 in ('Suspension',) and entry.tags not in ('[Questions]', '[Question]'):
+                t_sections['suspension'].add_row(*fullrow)
+                # suspension_duration += duration
+                # suspension_cells.extend(cells)
+            elif entry.subject1 in ('Committee Statement',):
+                t_sections['statements'].add_row(*fullrow)
+            elif entry.subject1 in ('Time limit', 'Time Limit',
+                                    'Observation of a period of silence'):
+                t_sections['miscellaneous'].add_row(*fullrow)
+                # miscellaneous_duration += duration
+                # miscellaneous.extend(cells)
+            # if entry.subject1 == '[exit]':
+            #     t_sections['brexit'].add_row(cells, duration)
 
 
         for table_section in t_sections.values():
@@ -999,8 +1013,6 @@ def main():
 
         args = parser.parse_args(sys.argv[1:])
 
-        print(args)
-
         if args.include_only == 'chamber':
             run(args.input.name, include_wh=False, no_excel=args.no_excel)
         elif args.include_only == 'wh':
@@ -1019,6 +1031,9 @@ def run(excel_file_path: str,
         include_chamber=True,
         include_wh=True,
         no_excel=False):
+
+    if not output_folder_path:
+        output_folder_path = os.path.dirname(excel_file_path)
 
     # sessional_diary = Sessional_Diary('Sessional diary 2019-21_downloaded_2021-06-18.xlsx')
     sessional_diary = Sessional_Diary(excel_file_path, no_excel)

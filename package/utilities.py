@@ -1,7 +1,8 @@
-from datetime import timedelta, datetime, date
+from datetime import timedelta, datetime, date, time
 from copy import deepcopy
 from typing import Iterable
 from typing import Union
+from typing import Any
 
 
 from lxml.etree import Element
@@ -107,7 +108,7 @@ def format_date(date_containing_item: Union[datetime, date, str]):
             print(date_containing_item)
 
 
-def timedelta_from_time(t, default=timedelta(seconds=0)):
+def timedelta_from_time(t: time, default=timedelta(seconds=0)):
     try:
         return datetime.combine(date.min, t) - datetime.min
     except TypeError as e:
@@ -115,3 +116,13 @@ def timedelta_from_time(t, default=timedelta(seconds=0)):
             print(f'{t=}')
             print(e)
         return default
+
+
+def str_strip(input: Any) -> str:
+    '''Return empty string if input is none otherwise return str(input)'''
+
+    if input is None:
+        output = ''
+    else:
+        output = str(input).strip()
+    return output
