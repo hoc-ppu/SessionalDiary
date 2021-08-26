@@ -104,18 +104,19 @@ def format_date(date_containing_item: Union[datetime, date, str]):
         try:
             return datetime.strptime(date_containing_item, '%d %B %Y').strftime('%a,\t%d\t%b\t%Y')
         except ValueError:
+            # TODO: log this
             print('print')
             print(date_containing_item)
 
 
-def timedelta_from_time(t: time, default=timedelta(seconds=0)):
-    try:
-        return datetime.combine(date.min, t) - datetime.min
-    except TypeError as e:
-        if t != '':
-            print(f'{t=}')
-            print(e)
-        return default
+# def timedelta_from_time(t: time, default=timedelta(seconds=0)):
+#     try:
+#         return datetime.combine(date.min, t) - datetime.min
+#     except TypeError as e:
+#         if t != '':
+#             print(f'{t=}')
+#             print(e)
+#         return default
 
 
 def str_strip(input: Any) -> str:
@@ -125,4 +126,5 @@ def str_strip(input: Any) -> str:
         output = ''
     else:
         output = str(input).strip()
+
     return output
