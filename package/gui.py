@@ -74,8 +74,6 @@ class GUIApp:
                 'Error', 'Please select a folder for the output files to be saved into')
             return
 
-        # print(self.no_excel.get())
-        # print(output_folder)
         self.run_callback(infilename, output_folder, no_excel=self.no_excel.get())
         messagebox.showinfo(title=None, message='All Done!')
 

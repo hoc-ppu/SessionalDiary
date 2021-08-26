@@ -42,26 +42,39 @@ class _TableSection():
         table.increment_rows(increment_by=self.rows)
 
 
+
+
+
+
+class SudoTableSection(_TableSection):
+    """These are just to be used in the table of contents"""
+
+    def __init__(self, title: str):
+        self.title = title
+
+        self.total_duration = timedelta()
+        self.total_aat = timedelta()
+
+    def __len__(self):
+        return 0
+
+    def add_row(self, cells_items: Iterable):
+        raise NotImplementedError
+
+    def add_to(self, table):
+        raise NotImplementedError
+
+
 class WH_AnalysisTableSection(_TableSection):
 
-    # create some text for the totals on the contents page
-    # contents_text = ''
-    # contents_dict = {}
+    # for 'Part' totals on the contents page
     part_dur = timedelta(seconds=0)
-    table_num_dur = {}
 
-    # @classmethod
-    # def output_contents(cls, file_path: str):
-    #     with open(file_path, 'w') as f:
-    #         f.write(cls.contents_text)
-
-    def __init__(self, title: str, excel_sheet_title: str, table_num: int):
+    def __init__(self, title: str, excel_sheet_title: str, parent: Optional[SudoTableSection]):
         super().__init__(title)
-        self.table_num = table_num
+        self.parent = parent
         self.duration = timedelta(seconds=0)
-        # self.out_wb = excel_workbook
         # also create an excel sheet
-        # self.sheet_title = excel_sheet_title
         self.excel_sheet: Optional[Worksheet] = None
         if Excel.out_wb:
             self.excel_sheet = cast(Worksheet, Excel.out_wb.create_sheet(excel_sheet_title))
@@ -83,9 +96,10 @@ class WH_AnalysisTableSection(_TableSection):
     def add_to(self, table):
         super().add_to(table)
         table.add_total_duration(self.duration)
-        # WH_AnalysisTableSection.contents_text += (f'{self.title}\t'
-        #                                           f'{format_timedelta(self.duration)}\n')
-        # WH_AnalysisTableSection.contents_dict[self.title] = self.duration
+
+        if self.parent is not None:
+            self.parent.total_duration += self.duration
+
 
         # excel stuff
         if self.excel_sheet:
@@ -126,8 +140,8 @@ class CH_AnalysisTableSection(WH_AnalysisTableSection):
     table_num_aat = {}
 
     def __init__(self, title: str, excel_sheet_title: str,
-                 table_num: int):
-        super().__init__(title, excel_sheet_title, table_num)
+                 parent: Optional[SudoTableSection]):
+        super().__init__(title, excel_sheet_title, parent)
         self.after_appointed_time = timedelta(seconds=0)
 
     def add_row(self, cells_items: Iterable, duration: timedelta, aat: timedelta):
@@ -139,24 +153,15 @@ class CH_AnalysisTableSection(WH_AnalysisTableSection):
         table.extend(self.cells)
         table.increment_rows(increment_by=self.rows)
         table.add_total_duration(self.duration, self.after_appointed_time)
-        # CH_AnalysisTableSection.contents_text += (f'{self.title}\t'
-        #                                   f'{format_timedelta(self.duration)}\t'
-        #                                   f'{format_timedelta(self.after_appointed_time)}\n')
+
         CH_AnalysisTableSection.part_dur += self.duration
-        # part_dur = format_timedelta(CH_AnalysisTableSection.part_dur)
-        # self_dur = format_timedelta(self.duration)
-        # print(f'{self.table_num}:\t{part_dur=}, {self_dur=}')
         CH_AnalysisTableSection.part_aat += self.after_appointed_time
 
-        if self.table_num in CH_AnalysisTableSection.table_num_dur:
-            CH_AnalysisTableSection.table_num_dur[self.table_num] += self.duration
-        else:
-            CH_AnalysisTableSection.table_num_dur[self.table_num] = self.duration
-
-        if self.table_num in CH_AnalysisTableSection.table_num_aat:
-            CH_AnalysisTableSection.table_num_aat[self.table_num] += self.after_appointed_time
-        else:
-            CH_AnalysisTableSection.table_num_aat[self.table_num] = self.after_appointed_time
+        # some sections have parents referenced in the table of contents
+        # these parents also need to have the durations calculated
+        if self.parent is not None:
+            self.parent.total_duration += self.duration
+            self.parent.total_aat += self.after_appointed_time
 
         # excel stuff
         if self.excel_sheet:
@@ -170,33 +175,6 @@ class CH_AnalysisTableSection(WH_AnalysisTableSection):
             totals_row = [None, sess_tot_cell, tot_dur_cell, tot_aat_cell]
 
             self._add_to_excel(totals_row)
-
-        # cell_values = [cell.text for cell in self.cells]
-        # self.excel_sheet.append(cell_values)
-        # self.excel_sheet.insert_rows(1, 2)
-        # self.excel_sheet['A1'] = self.title.replace('\t', ' ')
-        # self.excel_sheet['A1'].font = BOLD  # make first row bold
-        # for cell in self.excel_sheet[2]:  # get second row
-        #     cell.font = BOLD  # make second row bold
-        # self.excel_sheet['A2'] = 'Date'
-        # self.excel_sheet['B2'] = 'Content'
-        # self.excel_sheet['C2'] = 'Duration'
-        # self.excel_sheet['D2'] = 'After appointed time'
-
-        # sess_tot_cell = Cell(self.excel_sheet, value='Sessional Total')
-        # sess_tot_cell.font = BOLD
-        # tot_dur_cell = Cell(self.excel_sheet, value=self.duration)  # type: ignore
-        # tot_dur_cell.font = BOLD
-        # tot_aat_cell = Cell(self.excel_sheet, value=self.after_appointed_time)  # type: ignore
-        # tot_aat_cell.font = BOLD
-
-        # totals_row = [None, sess_tot_cell, tot_dur_cell, tot_aat_cell]
-        # self.excel_sheet.append(totals_row)
-
-        # # tidy up the col widths of the first two columns.
-        # # Otherwise it's too narrow and you have to change it every time you open the excel
-        # self.excel_sheet.column_dimensions['A'].width = 20
-        # self.excel_sheet.column_dimensions['B'].width = 30
 
     def _add_to_excel(self, totals_row: list[Optional[Cell]]):
         if self.excel_sheet:
@@ -260,11 +238,8 @@ class WH_Table(etree.ElementBase):
     def add_total_duration(self, total_duration: timedelta):
         self.increment_rows()
         total_cell = utils.Body_line_below_right_align()
-        # total_cell.set(AID + 'ccols', '2')  # span 2 cols
-        # total_cell.set(AID5 + 'cellstyle', 'BodyLineBelowRightAlign')  # right align content
         total_cell.text = 'Total:'
         time_cell = utils.Body_lines()
-        # time_cell.set(AID5 + 'cellstyle', 'BodyLines')
         time_cell.text = format_timedelta(total_duration)
         self.extend(make_id_cells([None]) + [total_cell, time_cell])  # type: ignore
 
@@ -276,6 +251,16 @@ class WH_Table(etree.ElementBase):
                                       AID5 + 'cellstyle': 'SubHeading'})
         sub_head.text = heading_text
 
+
+class Contents_Table(WH_Table):
+    # def add_row(self, cells):
+    #     self.increment_rows()
+    #     self.extend(deepcopy(cells))
+
+    def add_row(self, cells_items: Iterable):
+        self.increment_rows()
+        cells = make_id_cells(cells_items)
+        self.extend(cells)
 
 class WH_Diary_Table(WH_Table):
 
