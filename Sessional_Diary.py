@@ -249,7 +249,7 @@ class Sessional_Diary:
 
             try:
                 entry = CHRow(excel_row)
-            except ValueError:
+            except (ValueError, AttributeError):
                 print(f'Skipping row {c}')
                 continue
 
@@ -277,7 +277,7 @@ class Sessional_Diary:
             session_total_time += entry.duration
             session_total_after_moi += entry.aat
 
-            # there will be 5 cells per row
+            # there will be 4 cells per row
             cell = ID_Cell()
 
             # create a Bold element. Optionally can have non bold tail text
@@ -295,7 +295,7 @@ class Sessional_Diary:
                 aat = ''
 
             table_sections[-1].add_row(
-                [entry.time.strftime('%H.%M'), cell, entry.tags, duration, aat],
+                [entry.time.strftime('%H.%M'), cell, duration, aat],
                 duration=entry.duration, aat=entry.aat)
 
         # need to add the last table section
@@ -504,7 +504,7 @@ class Sessional_Diary:
 
             try:
                 entry = CHRow(excel_row)
-            except ValueError:
+            except (ValueError, AttributeError):
                 print(f'Skipping row {c}')
                 continue
 
@@ -651,12 +651,23 @@ class Sessional_Diary:
                 ]
                 t_sections['miscellaneous'].add_row(misc_cells, entry.duration, entry.aat)
 
+
+        previous_table_sec_parent: Optional[SudoTableSection] = None
         for table_section in t_sections.values():
+            if table_section.parent != previous_table_sec_parent:
+                # if there is a section with a new parent we will put in a row
+                previous_table_sec_parent = table_section.parent
+                # add a row...
+                if table_section.parent is not None:
+                    table_ele.add_table_sub_head(table_section.parent.title)
             if len(table_section) > 0:
                 table_section.add_to(table_ele)
             else:
                 # TODO: consider adding empty table sections but put nil in.
-                pass
+                # adding empty table sections but put nil in.
+                cells_vals = ['Nil', '', '', '',]
+                table_section.add_row(cells_vals, timedelta(), timedelta())
+                table_section.add_to(table_ele)
 
         # need to also add prayers even though there are no rows
         t_sections['prayers'].add_to(table_ele)
@@ -726,7 +737,10 @@ class Sessional_Diary:
             if c == 0:
                 continue
 
-            entry = WHRow(excel_row)
+            try:
+                entry = WHRow(excel_row)
+            except (ValueError, AttributeError):
+                continue
 
             if c == 1:
                 chamber_daynum = DATE_NUM_LOOK_UP.get(entry.date, '')
@@ -831,7 +845,10 @@ class Sessional_Diary:
             if all(bool(v) is False for v in excel_row[:8]):
                 continue
 
-            entry = WHRow(excel_row)
+            try:
+                entry = WHRow(excel_row)
+            except (ValueError, AttributeError):
+                continue
 
             forematted_date = format_date(entry.date)  # type: ignore
 

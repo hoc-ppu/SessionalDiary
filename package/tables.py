@@ -279,9 +279,11 @@ class WH_Diary_Table(WH_Table):
         total_cell = utils.Body_line_below_right_align()
         total_cell.set(AID + 'ccols', '2')  # span 2 cols
         total_cell.text = 'Totals for Session:'
+        # print(etree.tostring(total_cell))
 
         time_cell = utils.Body_line_below()
         time_cell.text = format_timedelta(session_total_duration)
+        # print(etree.tostring(time_cell), '\n')
 
         self.extend([total_cell, time_cell])  # type: ignore
 
@@ -324,7 +326,7 @@ class CH_Diary_Table(WH_Table):
                            session_total_duration, session_aat_total) -> None:
         self.increment_rows()
         total_cell = utils.Right_align_cell()
-        total_cell.set(AID + 'ccols', '2')  # span 2 cols
+        # total_cell.set(AID + 'ccols', '2')  # span 2 cols
         total_cell.text = 'Daily Totals:'
 
         time_cell = utils.Body_line_above()
@@ -338,7 +340,7 @@ class CH_Diary_Table(WH_Table):
 
         self.increment_rows()
         total_cell = utils.Body_line_below_right_align()
-        total_cell.set(AID + 'ccols', '2')  # span 2 cols
+        # total_cell.set(AID + 'ccols', '2')  # span 2 cols
         total_cell.text = 'Totals for Session:'
 
         time_cell = utils.Body_line_below()
@@ -354,6 +356,6 @@ class CH_Diary_Table(WH_Table):
         self.increment_rows()
         SubElement(self, 'Cell',
                    attrib={AID + 'table': 'cell',
-                           AID + 'ccols': '5',
+                           AID + 'ccols': '4',
                            AID5 + 'cellstyle': 'SubHeading No Toc'}
                    ).text = heading_text
