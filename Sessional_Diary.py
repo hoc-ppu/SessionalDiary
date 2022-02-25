@@ -167,8 +167,10 @@ class CHRow(WHRow):
 class Sessional_Diary:
 
     def __init__(self, input_excel_file_path: str, no_excel: bool):
+
         self.input_workbook = load_workbook(filename=input_excel_file_path,
                                             data_only=True, read_only=True)
+
 
         # if we require an output excel file
         if no_excel is False:
@@ -653,24 +655,30 @@ class Sessional_Diary:
 
 
         previous_table_sec_parent: Optional[SudoTableSection] = None
+
         for table_section in t_sections.values():
             if table_section.parent != previous_table_sec_parent:
-                # if there is a section with a new parent we will put in a row
+                # if there is a section with a new parent we will put a
+                # new subhead row into the table This will probably
+                # make logical sense in the table and will definitely
+                # make it easier to genareate teh table of contents
+                # in InDesign
                 previous_table_sec_parent = table_section.parent
-                # add a row...
                 if table_section.parent is not None:
+                    # add a sub head row
                     table_ele.add_table_sub_head(table_section.parent.title)
-            if len(table_section) > 0:
+
+            if 'daily prayers' in table_section.title.lower():
+                # Daily prayers is left blank on purpose and still needs to be added
+                table_section.add_to(table_ele)
+            elif len(table_section) > 0:
                 table_section.add_to(table_ele)
             else:
-                # TODO: consider adding empty table sections but put nil in.
-                # adding empty table sections but put nil in.
-                cells_vals = ['Nil', '', '', '',]
+                # add empty table sections but put nil in.
+                cells_vals = ['Nil', '', '', '', ]
                 table_section.add_row(cells_vals, timedelta(), timedelta())
                 table_section.add_to(table_ele)
 
-        # need to also add prayers even though there are no rows
-        t_sections['prayers'].add_to(table_ele)
 
         # now create XML for InDesign
         # create root element
@@ -880,9 +888,26 @@ class Sessional_Diary:
                 t_sections['miscellaneous'].add_row(*fullrow)
 
 
+        previous_table_sec_parent = None
         for table_section in t_sections.values():
+            if table_section.parent != previous_table_sec_parent:
+                # if there is a section with a new parent we will put a
+                # new subhead row into the table This will probably
+                # make logical sense in the table and will definitely
+                # make it easier to genareate teh table of contents
+                # in InDesign
+                previous_table_sec_parent = table_section.parent
+                if table_section.parent is not None:
+                    # add a sub head row
+                    table_ele.add_table_sub_head(table_section.parent.title)
             if len(table_section) > 0:
                 table_section.add_to(table_ele)
+            else:
+                # adding empty table sections but put nil in.
+                cells_vals = ['Nil', '', '', ]
+                table_section.add_row(cells_vals, timedelta())
+                table_section.add_to(table_ele)
+
 
         # create XML for indesign
         output_root = Element('root')
