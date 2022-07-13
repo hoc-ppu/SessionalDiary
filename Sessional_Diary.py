@@ -245,8 +245,8 @@ class Sessional_Diary:
             if c == 1:
                 continue
 
-            # check to see if all items in list are '' as there can be blank rows
             if all(not v.value for v in excel_row[:10]):
+                # skip over any blank rows
                 continue
 
             try:
@@ -272,7 +272,7 @@ class Sessional_Diary:
                     f'{entry.day}.\u2002{entry.date.strftime("%A %d %B %Y")}'))
 
                 # add the date and number to the lookup.
-                # this is so this info can also be put in the WH able
+                # this is so this info can also be put in the WH table
                 DATE_NUM_LOOK_UP[entry.date] = entry.day
 
             # need to add up all the durations
@@ -500,8 +500,8 @@ class Sessional_Diary:
                 # top row just has headings in
                 continue
 
-            # skip any blank rows
             if all(not v.value for v in excel_row[:9]):
+                # skip any blank rows
                 continue
 
             try:
@@ -511,7 +511,7 @@ class Sessional_Diary:
                 continue
 
 
-            forematted_date = format_date(entry.date)  # type: ignore
+            forematted_date = format_date(entry.date)
 
             # col_time = Time.strip().lower()
             subject_lower = entry.subject1.lower()
@@ -661,7 +661,7 @@ class Sessional_Diary:
                 # if there is a section with a new parent we will put a
                 # new subhead row into the table This will probably
                 # make logical sense in the table and will definitely
-                # make it easier to genareate teh table of contents
+                # make it easier to genareate the table of contents
                 # in InDesign
                 previous_table_sec_parent = table_section.parent
                 if table_section.parent is not None:
@@ -687,31 +687,6 @@ class Sessional_Diary:
         output_tree = etree.ElementTree(output_root)
         output_tree.write(os.path.join(output_folder_path, 'House_Analysis.xml'),
                           encoding='UTF-8', xml_declaration=True)
-
-        # build up CH_contents.txt again
-        # part_1 duration
-        # text = f'\tPart 2\t{format_timedelta(CH_AnalysisTableSection.part_dur)}' \
-        #     f'\t{format_timedelta(CH_AnalysisTableSection.part_aat)}'
-
-        # # previous_number = 0
-        # output_parents = set()
-        # for table_section in t_sections.values():
-
-        #     # first deal with parents
-        #     parent = table_section.parent
-        #     if parent is not None and parent not in output_parents:
-        #         output_parents.add(parent)
-        #         total_duration = format_timedelta(parent.total_duration)
-        #         total_aat = format_timedelta(parent.total_aat)
-        #         # output the text for the parent first
-        #         text += (f'\n\t{parent.title}'
-        #                  f'\t{total_duration}'
-        #                  f'\t{total_aat}')
-
-        #     formatted_dur = format_timedelta(table_section.duration)
-        #     formatted_aat = format_timedelta(table_section.after_appointed_time)
-        #     text += f'\n\t{table_section.title}\t{formatted_dur}\t{formatted_aat}'
-        # print(text)
 
         self.create_contents(t_sections,
                              os.path.join(output_folder_path, 'House_An_Contents.xml'),
@@ -849,8 +824,8 @@ class Sessional_Diary:
             if c == 0:
                 continue
 
-            # check to see if all items in list are None as there are lots of blank rows
             if all(bool(v) is False for v in excel_row[:8]):
+                # skip any blank rows
                 continue
 
             try:
@@ -858,7 +833,7 @@ class Sessional_Diary:
             except (ValueError, AttributeError):
                 continue
 
-            forematted_date = format_date(entry.date)  # type: ignore
+            forematted_date = format_date(entry.date)
 
             cells_vals = [
                 forematted_date,
@@ -921,28 +896,6 @@ class Sessional_Diary:
                              WH_AnalysisTableSection.part_dur,
                              None)
 
-        # CONTENTS
-        # part_1 duration
-        # text = f'\tPart 4\t{format_timedelta(WH_AnalysisTableSection.part_dur)}'
-
-        # output_parents = set()
-        # for table_section in t_sections.values():
-
-        #     # first deal with parents
-        #     parent = table_section.parent
-
-        #     # we only want to output the parent for the contents once and before the children
-        #     if parent is not None and parent not in output_parents:
-        #         output_parents.add(parent)
-        #         total_duration = format_timedelta(parent.total_duration)
-        #         # output the text for the parent
-        #         text += (f'\n\t{parent.title}'
-        #                  f'\t{total_duration}')
-
-        #     # text for children or top level table sections
-        #     formatted_dur = format_timedelta(table_section.duration)
-        #     text += f'\n\t{table_section.title}\t{formatted_dur}'
-        # print(text)
 
     def create_contents(self, table_sections: dict,
                         output_file_path: str,
