@@ -43,9 +43,6 @@ class _TableSection():
 
 
 
-
-
-
 class SudoTableSection(_TableSection):
     """These are just to be used in the table of contents"""
 
@@ -94,7 +91,18 @@ class WH_AnalysisTableSection(_TableSection):
             self.excel_sheet.append(e_row)
 
     def add_to(self, table):
-        super().add_to(table)
+        # super().add_to(table)
+        # table.add_total_duration(self.duration)
+
+        if self.parent is not None:
+            # if there is a parent then this section of the table should have
+            # a subsubsection heading rather than a subsection heading
+            table.add_table_sub_head(self.title, subsubhead=True)
+        else:
+            table.add_table_sub_head(self.title)
+
+        table.extend(self.cells)
+        table.increment_rows(increment_by=self.rows)
         table.add_total_duration(self.duration)
 
         if self.parent is not None:
@@ -149,7 +157,12 @@ class CH_AnalysisTableSection(WH_AnalysisTableSection):
         self.after_appointed_time += aat
 
     def add_to(self, table):
-        table.add_table_sub_head(self.title)
+        if self.parent is not None:
+            # if there is a parent then this section of the table should have
+            # a subsubsection heading rather than a subsection heading
+            table.add_table_sub_head(self.title, subsubhead=True)
+        else:
+            table.add_table_sub_head(self.title)
         table.extend(self.cells)
         table.increment_rows(increment_by=self.rows)
         table.add_total_duration(self.duration, self.after_appointed_time)
@@ -243,12 +256,17 @@ class WH_Table(etree.ElementBase):
         time_cell.text = format_timedelta(total_duration)
         self.extend(make_id_cells([None]) + [total_cell, time_cell])  # type: ignore
 
-    def add_table_sub_head(self, heading_text: str):
+    def add_table_sub_head(self, heading_text: str, subsubhead=False):
         self.increment_rows()
+        cellstyle = 'SubHeading'
+
+        if subsubhead:
+            cellstyle = 'SubSubHeading'
+
         sub_head = SubElement(self, 'Cell',
                               attrib={AID + 'table': 'cell',
                                       AID + 'ccols': '3',
-                                      AID5 + 'cellstyle': 'SubHeading'})
+                                      AID5 + 'cellstyle': cellstyle})
         sub_head.text = heading_text
 
 
@@ -311,13 +329,18 @@ class CH_Table(WH_Table):
 
         self.extend(make_id_cells([None]) + [total_cell, time_cell, time_2_cell])  # type: ignore
 
-    def add_table_sub_head(self, heading_text: str):
+    def add_table_sub_head(self, heading_text: str, subsubhead=False):
         self.increment_rows()
-        SubElement(self, 'Cell',
-                   attrib={AID + 'table': 'cell',
-                           AID + 'ccols': '4',
-                           AID5 + 'cellstyle': 'SubHeading'}
-                   ).text = heading_text
+        cellstyle = 'SubHeading'
+
+        if subsubhead:
+            cellstyle = 'SubSubHeading'
+
+        sub_head = SubElement(self, 'Cell',
+                              attrib={AID + 'table': 'cell',
+                                      AID + 'ccols': '4',
+                                      AID5 + 'cellstyle': cellstyle})
+        sub_head.text = heading_text
 
 
 class CH_Diary_Table(WH_Table):
