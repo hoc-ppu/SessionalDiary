@@ -1,5 +1,5 @@
 # Sessional Diary
-Create the House of Commons sessional diary PDF form an Excel file. A python script takes the Excel file as input and creates several XML files. These XML files can be imported into Adobe InDesign templates (.idml files) and then a PDF can be exported.
+Create the House of Commons sessional diary PDF from an Excel file. A python script takes the Excel file as input and creates several XML files. These XML files can be imported into Adobe InDesign templates (.idml files) and then a PDF can be exported.
 
 You can see previously published versions of both the excel files and PDFs on the [UK parliament website](https://www.parliament.uk/business/publications/commons/sessional-diary/).
 
@@ -9,17 +9,14 @@ If you want to create a PDF of a sessional diary from an Excel file you will nee
 You should also clone this repository. [Here is a guide to cloning](https://www.youtube.com/watch?v=CKcqniGu3tA). Or if you do not have git installed you could download and extract the zip file.
 
 ## Python script installation
-*Optionally* create and activate a python virtual environment
-To create a virtual environment run the following in your terminal or in powershell in windows.
+### *Optionally* create and activate a python virtual environment.
+To create a virtual environment run the following in PowerShell on Windows or in the terminal on Unix (Mac or Linux).
 
-On Windows
+#### On Windows
+
+Create:
 ```bash
 python -m venv sdenv
-```
-
-On Unix
-```bash
-python3 -m venv sdenv
 ```
 
 To activate on Windows, run:
@@ -27,12 +24,19 @@ To activate on Windows, run:
 sdenv\Scripts\activate.bat
 ```
 
-To activate on Unix or MacOS, run:
+#### On Unix
+
+Create:
+```bash
+python3 -m venv sdenv
+```
+
+To activate on Unix, run:
 ```bash
 source sdenv/bin/activate
 ```
 
-Next install the dependencies
+### Install the dependencies (Required)
 ```bash
 pip install -r requirements.txt
 ```
@@ -40,12 +44,12 @@ pip install -r requirements.txt
 ## Python script usage
 First copy or move the Excel file into the same folder as the Sessional_Diary.py python script file.
 
-To run the python script use the following command in your terminal or powershell. (replacing input_file_name with your Excel file name)
+To run the python script use the following command in your terminal or PowerShell. (replacing input_file_name with your Excel file name):
 ```bash
 python Sessional_Diary.py input_file_name
 ```
 
-If there are spaces in your Excel file name you may need to use quotes like in the following example
+If there are spaces in your Excel file name you may need to use quotes like in the following example:
 
 ```bash
 python Sessional_Diary.py "2021-22 sessional diary data.xlsx"
@@ -64,7 +68,10 @@ Open all template .idml files with InDesign. Immediately SaveAs, use a name with
 You should use an InDesign book as this will give you correct page numbering and make exporting a concatenated PDF easier. Follow the "Create an InDesign book file" and "Add documents to a book file" in [this tutorial](https://redokun.com/blog/indesign-book#toc-3) if you are unsure. Make sure you add all 5 .indd files. You cannot add .idml files to an InDesign book.
 
 Import the XML for parts 1-4 into the relevant InDesign file. See gif below.
+
+
 ![](https://github.com/hoc-ppu/SessionalDiary/blob/main/Import_xml.gif)
+
 
 If the text does not flow to multiple pages automatically, follow the instructions in this [youtube video](https://youtu.be/jUP1kMsIYV0?t=97) (from about 1:37 on).
 
