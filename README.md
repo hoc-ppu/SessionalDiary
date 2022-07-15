@@ -22,8 +22,10 @@ python -m venv sdenv
 
 To activate on Windows, run:
 ```powershell
-sdenv\Scripts\activate.bat
+sdenv\Scripts\Activate.ps1
 ```
+
+If you run into permission trouble, [this article](https://dev.to/aka_anoop/enabling-virtualenv-in-windows-powershell-ka3) may help.
 </details>
 
 <details>
