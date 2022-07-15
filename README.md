@@ -12,7 +12,8 @@ You should also clone this repository. [Here is a guide to cloning](https://www.
 ### *Optionally* create and activate a python virtual environment.
 To create a virtual environment run the following in PowerShell on Windows or in the terminal on Unix (Mac or Linux).
 
-#### On Windows
+<details>
+<summary>On Windows</summary>
 
 Create:
 ```bash
@@ -23,8 +24,10 @@ To activate on Windows, run:
 ```powershell
 sdenv\Scripts\activate.bat
 ```
+</details>
 
-#### On Unix
+<details>
+<summary>On Unix</summary>
 
 Create:
 ```bash
@@ -35,6 +38,7 @@ To activate on Unix, run:
 ```bash
 source sdenv/bin/activate
 ```
+</details>
 
 ### Install the dependencies (Required)
 ```bash
