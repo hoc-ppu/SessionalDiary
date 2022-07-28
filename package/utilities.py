@@ -1,22 +1,29 @@
-from datetime import timedelta, datetime, date, time
+from datetime import timedelta, datetime, date
 from copy import deepcopy
 from typing import Iterable
 from typing import Union
 from typing import Any
+from typing import cast
 
 
 from lxml.etree import Element
 from lxml.etree import _Element
 from lxml.etree import iselement
 
-AID  = '{http://ns.adobe.com/AdobeInDesign/4.0/}'
-AID5 = '{http://ns.adobe.com/AdobeInDesign/5.0/}'
+# a cell element (for InDesign) or its contents
+CellT = Union[str, _Element, timedelta, None, int, float]
 
-NS_MAP = {'aid':  'http://ns.adobe.com/AdobeInDesign/4.0/',
-          'aid5': 'http://ns.adobe.com/AdobeInDesign/5.0/'}
+AID = "{http://ns.adobe.com/AdobeInDesign/4.0/}"
+AID5 = "{http://ns.adobe.com/AdobeInDesign/5.0/}"
+
+NS_MAP = {
+    "aid": "http://ns.adobe.com/AdobeInDesign/4.0/",
+    "aid5": "http://ns.adobe.com/AdobeInDesign/5.0/",
+}
 
 # template for an InDesign table cell
-id_cell = Element('Cell', attrib={AID + 'table': 'cell'})
+id_cell = Element("Cell", attrib={AID + "table": "cell"})
+
 
 def ID_Cell() -> _Element:
     """Create a XML cell Element for InDesign"""
@@ -27,7 +34,7 @@ def Right_align_cell() -> _Element:
     """Create a XML cell Element with the RightAlign cellstyle applied."""
 
     cell = ID_Cell()
-    cell.set(AID5 + 'cellstyle', 'RightAlign')
+    cell.set(AID5 + "cellstyle", "RightAlign")
     return cell
 
 
@@ -36,7 +43,7 @@ def Body_line_below_right_align() -> _Element:
     BodyLineBelowRightAlign cellstyle applied."""
 
     cell = ID_Cell()
-    cell.set(AID5 + 'cellstyle', 'BodyLineBelowRightAlign')
+    cell.set(AID5 + "cellstyle", "BodyLineBelowRightAlign")
     return cell
 
 
@@ -45,7 +52,7 @@ def Body_line_below() -> _Element:
     BodyLineBelow cellstyle applied."""
 
     cell = ID_Cell()
-    cell.set(AID5 + 'cellstyle', 'BodyLineBelow')
+    cell.set(AID5 + "cellstyle", "BodyLineBelow")
     return cell
 
 
@@ -54,7 +61,7 @@ def Body_line_above() -> _Element:
     BodyLineAbove cellstyle applied."""
 
     cell = ID_Cell()
-    cell.set(AID5 + 'cellstyle', 'BodyLineAbove')
+    cell.set(AID5 + "cellstyle", "BodyLineAbove")
     return cell
 
 
@@ -63,27 +70,31 @@ def Body_lines() -> _Element:
     BodyLines cellstyle applied."""
 
     cell = ID_Cell()
-    cell.set(AID5 + 'cellstyle', 'BodyLines')
+    cell.set(AID5 + "cellstyle", "BodyLines")
     return cell
 
 
-def make_id_cells(iterable: Iterable[Union[str, _Element, timedelta, None, int, float]],
-                  attrib: dict = {}) -> list[_Element]:
-    cells = []
+def make_id_cells(
+    iterable: Iterable[CellT], attrib: dict[str, str] = {}
+) -> list[_Element]:
+    cells: list[_Element] = []
     for item in iterable:
         if iselement(item):
+            # type checker doesn't know about iselement it seems
+            item = cast(_Element, item)
             cells.append(deepcopy(item))
         else:
             cell = ID_Cell()
-            if attrib:
-                for attribute_key, attribute_value in attrib.items():
-                    cell.set(attribute_key, attribute_value)
+
+            for attribute_key, attribute_value in attrib.items():
+                # there may not be any attributes of corse
+                cell.set(attribute_key, attribute_value)
             if isinstance(item, str):
                 cell.text = item
             elif isinstance(item, timedelta):
                 cell.text = format_timedelta(item)
             elif item is None:
-                cell.text = ''
+                cell.text = ""
             else:
                 cell.text = str(item)
             cells.append(cell)
@@ -94,18 +105,20 @@ def format_timedelta(td: timedelta) -> str:
     total_seconds = td.total_seconds()
     hours = round(total_seconds // 3600)
     mins = round(total_seconds % 3600 / 60)
-    return f'{hours}.{mins:02}'
+    return f"{hours}.{mins:02}"
 
 
 def format_date(date_containing_item: Union[datetime, date, str]):
     if isinstance(date_containing_item, datetime):
-        return date_containing_item.strftime('%a,\t%d\t%b\t%Y')
+        return date_containing_item.strftime("%a,\t%d\t%b\t%Y")
     if isinstance(date_containing_item, str):
         try:
-            return datetime.strptime(date_containing_item, '%d %B %Y').strftime('%a,\t%d\t%b\t%Y')
+            return datetime.strptime(date_containing_item, "%d %B %Y").strftime(
+                "%a,\t%d\t%b\t%Y"
+            )
         except ValueError:
             # TODO: log this
-            print('print')
+            print("print")
             print(date_containing_item)
 
 
@@ -120,10 +133,10 @@ def format_date(date_containing_item: Union[datetime, date, str]):
 
 
 def str_strip(input: Any) -> str:
-    '''Return empty string if input is none otherwise return str(input)'''
+    """Return empty string if input is none otherwise return str(input)"""
 
     if input is None:
-        output = ''
+        output = ""
     else:
         output = str(input).strip()
 
