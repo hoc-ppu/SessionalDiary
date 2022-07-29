@@ -171,11 +171,19 @@ def write_xml(lxml_element: _Element, path: Path):
     output_root = Element("root")
     output_root.append(lxml_element)
     output_tree = etree.ElementTree(output_root)
-    if debug.debug:
-        etree.indent(output_tree, space="  ")
     output_tree.write(
         str(path),
         encoding="UTF-8",
         xml_declaration=True,
     )
+
+    if debug.debug:
+        # if in debug mode also export an indented version
+        # as it's easier to do compares on.
+        etree.indent(output_tree, space="  ")
+        output_tree.write(
+            str(path.with_name(f"indented_{path.name}")),
+            encoding="UTF-8",
+            xml_declaration=True,
+        )
     print(f"Created: {path}")
