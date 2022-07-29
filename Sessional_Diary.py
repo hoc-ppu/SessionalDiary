@@ -12,6 +12,7 @@ from typing import cast
 from typing import Optional
 from typing import Sequence
 from typing import TypeVar
+import warnings
 
 from lxml.etree import SubElement
 from openpyxl import load_workbook
@@ -35,6 +36,13 @@ from package.utilities import ID_Cell
 from package.utilities import make_id_cells
 from package.utilities import str_strip
 from package.utilities import debug
+
+
+warnings.filterwarnings(
+    "ignore",
+    "Data Validation.*",
+)
+
 
 Table_Type = TypeVar("Table_Type", bound=Analysis_Table)
 
