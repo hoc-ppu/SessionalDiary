@@ -1,14 +1,18 @@
 from datetime import timedelta, datetime, date
 from copy import deepcopy
+from pathlib import Path
 from typing import Iterable
 from typing import Union
 from typing import Any
 from typing import cast
+from typing import Optional
 
-
+from lxml import etree
 from lxml.etree import Element
 from lxml.etree import _Element
 from lxml.etree import iselement
+from openpyxl import Workbook
+from openpyxl.styles import Font
 
 # a cell element (for InDesign) or its contents
 CellT = Union[str, _Element, timedelta, None, int, float]
@@ -16,10 +20,30 @@ CellT = Union[str, _Element, timedelta, None, int, float]
 AID = "{http://ns.adobe.com/AdobeInDesign/4.0/}"
 AID5 = "{http://ns.adobe.com/AdobeInDesign/5.0/}"
 
-NS_MAP = {
+NS_MAP: dict[str | None, str] = {
     "aid": "http://ns.adobe.com/AdobeInDesign/4.0/",
     "aid5": "http://ns.adobe.com/AdobeInDesign/5.0/",
 }
+
+BOLD = Font(bold=True)
+
+
+class debug:
+    debug = False
+
+
+class counters:
+    diary_add_row = 0
+    diary_cells = 0
+    tables_abc_add_row = 0
+    section = 0
+
+
+# exporting to excel is optional
+class Excel:
+    # the workbook class to output to
+    out_wb: Optional[Workbook] = None
+
 
 # template for an InDesign table cell
 id_cell = Element("Cell", attrib={AID + "table": "cell"})
@@ -133,7 +157,7 @@ def format_date(date_containing_item: Union[datetime, date, str]):
 
 
 def str_strip(input: Any) -> str:
-    """Return empty string if input is none otherwise return str(input)"""
+    """Return empty string if input is none otherwise return str(input).strip()"""
 
     if input is None:
         output = ""
@@ -141,3 +165,17 @@ def str_strip(input: Any) -> str:
         output = str(input).strip()
 
     return output
+
+
+def write_xml(lxml_element: _Element, path: Path):
+    output_root = Element("root")
+    output_root.append(lxml_element)
+    output_tree = etree.ElementTree(output_root)
+    if debug.debug:
+        etree.indent(output_tree, space="  ")
+    output_tree.write(
+        str(path),
+        encoding="UTF-8",
+        xml_declaration=True,
+    )
+    print(f"Created: {path}")

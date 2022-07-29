@@ -1,39 +1,115 @@
+from abc import ABC
 from datetime import timedelta
-from typing import Iterable, Optional, cast, NoReturn
+from typing import cast
+from typing import Iterable
+from typing import Optional
 
-from openpyxl.cell import Cell
-from openpyxl.styles import Font
-from openpyxl import Workbook
-from openpyxl.worksheet.worksheet import Worksheet
-from lxml import etree
-from lxml.etree import SubElement
+from typing import Sequence
+
 from lxml.etree import _Element
+from lxml.etree import Element
+from lxml.etree import SubElement
 
 import package.utilities as utils
-from package.utilities import AID, AID5
-from package.utilities import make_id_cells
-from package.utilities import format_timedelta
+from package.table_sections import AnalysisTableSection
+from package.table_sections import CH_DiaryDay_TableSection
+from package.table_sections import SectionParent
+
+# from package.table_sections import TableSection
+from package.table_sections import WH_DiaryDay_TableSection
+from package.utilities import AID
+from package.utilities import AID5
 from package.utilities import CellT
+from package.utilities import format_timedelta
+from package.utilities import make_id_cells
+from package.utilities import NS_MAP
+from package.utilities import counters
 
-BOLD = Font(bold=True)
-
-# exporting to excel is optional
-class Excel:
-    # the workbook class to output to
-    out_wb: Optional[Workbook] = None
+# from abc import abstractmethod
 
 
-class WH_Table(etree.ElementBase):
-    """class is based on etree.ElementBase
-    name of the xml element will default to the name of the class
-    class can be instantiated despite what type checkers may think"""
+class Table(ABC):
+    def __init__(self, list_of_tuples: list[tuple[str, int]]):
+        """Takes a list of 2 tuples of table header and cell widths"""
+
+        # self.sections: dict[str, TableSection] | list[TableSection] = {}
+
+        self.cols_count: int = len(list_of_tuples)  # number of cols in table
+
+        self.xml_element = Element(
+            self.__class__.__name__,
+            nsmap=NS_MAP,
+            attrib={
+                AID + "table": "table",
+                AID + "tcols": str(len(list_of_tuples)),
+                AID5 + "tablestyle": "Part1Table",
+                f"{AID}trows": "1",
+            },
+        )
+
+        # add heading elements to table
+        for item in list_of_tuples:
+            heading = SubElement(
+                self.xml_element,
+                "Cell",
+                attrib={
+                    AID + "table": "cell",
+                    AID + "theader": "",
+                    AID + "ccolwidth": str(item[1]),
+                },
+            )
+            heading.text = item[0]
+
+    # def __getitem__(self, key: str):
+    #     return self.sections[key]
+
+    # @abstractmethod
+    # def start_new_section(
+    #     self,
+    #     key: str,
+    #     title: str,
+    #     excel_sheet_title: str,
+    #     parent: Optional[SectionParent],
+    # ):
+    #     ...
+
+    # def add_new_sections(
+    #     self, sects: Sequence[tuple[str, str, str, Optional[SectionParent]]]
+    # ):
+    #     for sec in sects:
+    #         self.start_new_section(*sec)
 
     def increment_rows(self, increment_by: int = 1):
-        trows = self.get(AID + "trows", default=None)
+        trows = self.xml_element.get(AID + "trows", default=None)
         if trows:
-            self.set(AID + "trows", str(int(trows) + increment_by))
+            new_number_str = str(int(trows) + increment_by)
+            self.xml_element.set(AID + "trows", new_number_str)
         else:
-            self.set(AID + "trows", "1")
+            self.xml_element.set(AID + "trows", "1")
+
+    def add_table_sub_head(
+        self, heading_text: str, cellstyle: str = "", subsubhead: bool = False
+    ):
+        """Add a subheading row to the tables xml. This is achieved by
+        adding a single cell with a colspan equal to the number of
+        columns in the table and adding the heading text"""
+
+        self.increment_rows()
+        cellstyle = "SubHeading"
+
+        if subsubhead:
+            cellstyle = "SubSubHeading"
+
+        sub_head = SubElement(
+            self.xml_element,
+            "Cell",
+            attrib={
+                AID + "table": "cell",
+                AID + "ccols": f"{self.cols_count}",
+                AID5 + "cellstyle": cellstyle,
+            },
+        )
+        sub_head.text = heading_text
 
     def add_total_duration(self, total_duration: timedelta):
         self.increment_rows()
@@ -41,266 +117,103 @@ class WH_Table(etree.ElementBase):
         total_cell.text = "Total:"
         time_cell = utils.Body_lines()
         time_cell.text = format_timedelta(total_duration)
-        self.extend(make_id_cells([None]) + [total_cell, time_cell])
+        self.xml_element.extend(make_id_cells([None]) + [total_cell, time_cell])
 
-    def add_table_sub_head(self, heading_text: str, subsubhead: bool = False):
-        self.increment_rows()
-        cellstyle = "SubHeading"
+    def add_section(self, section: AnalysisTableSection):
+        """Add a table section to self.xml_element"""
 
-        if subsubhead:
-            cellstyle = "SubSubHeading"
-
-        sub_head = SubElement(
-            self,
-            "Cell",
-            attrib={
-                AID + "table": "cell",
-                AID + "ccols": "3",
-                AID5 + "cellstyle": cellstyle,
-            },
-        )
-        sub_head.text = heading_text
-
-
-class _TableSection:
-    def __init__(self, title: str):
-
-        # just for typing purposes.
-        # really not sure about this one
-        self.parent = None
-
-        self.title = title
-        self.rows = 0
-        self.cells: list[_Element] = []
-
-    def __len__(self):
-        return len(self.cells)
-
-    def add_row(self, cells_items: Iterable[CellT]):
-        self.rows += 1
-        cells = make_id_cells(cells_items)
-        self.cells.extend(cells)
-
-    def add_to(self, table: WH_Table):
-        # ID XML stuff
-        table.add_table_sub_head(self.title)
-        table.extend(self.cells)
-        table.increment_rows(increment_by=self.rows)
-
-
-class SudoTableSection(_TableSection):
-    """These are just to be used in the table of contents"""
-
-    def __init__(self, title: str):
-        self.title = title
-
-        self.total_duration = timedelta()
-        self.total_aat = timedelta()
-
-    def __len__(self):
-        return 0
-
-    def add_row(self, cells_items: Iterable[CellT]) -> NoReturn:
-        raise NotImplementedError
-
-    def add_to(self, table: WH_Table) -> NoReturn:
-        raise NotImplementedError
-
-
-class WH_AnalysisTableSection(_TableSection):
-
-    # for 'Part' totals on the contents page
-    part_dur = timedelta(seconds=0)
-
-    def __init__(
-        self, title: str, excel_sheet_title: str, parent: Optional[SudoTableSection]
-    ):
-        super().__init__(title)
-        self.parent = parent
-        self.duration = timedelta(seconds=0)
-        # also create an excel sheet
-        self.excel_sheet: Optional[Worksheet] = None
-        if Excel.out_wb:
-            self.excel_sheet = cast(
-                Worksheet, Excel.out_wb.create_sheet(excel_sheet_title)
-            )
-
-    # ignoring The Liskov Substitution Principle here
-    def add_row(
-        self, cells_items: Iterable[CellT], duration: timedelta  # type: ignore
-    ):
-
-        super().add_row(cells_items)
-
-        if duration is not None:
-            self.duration += duration
-
-        e_row: list[CellT] = []
-        for cell in cells_items:
-            if isinstance(cell, str):
-                cell = cell.replace("\t", " ")
-                e_row.append(cell)
-            else:
-                e_row.append(cell)
-        # print(e_row)
-        if self.excel_sheet:
-            self.excel_sheet.append(e_row)
-
-    def _add_to_excel(self, totals_row: list[None | Cell]) -> None:
-        if self.excel_sheet:
-            self.excel_sheet.insert_rows(1, 2)
-            self.excel_sheet["A1"] = self.title.replace("\t", " ")
-            # make first row bold
-            self.excel_sheet["A1"].font = BOLD  # type: ignore
-            for cell in self.excel_sheet[2]:  # get second row
-                cell.font = BOLD  # make second row bold
-            self.excel_sheet["A2"] = "Date"
-            self.excel_sheet["B2"] = "Content"
-            self.excel_sheet["C2"] = "Duration"
-
-            self.excel_sheet.append(totals_row)
-
-            # tidy up the col widths of the first two columns.
-            # Otherwise it's too narrow and you have to change it every time you open the excel
-            self.excel_sheet.column_dimensions["A"].width = 20
-            self.excel_sheet.column_dimensions["B"].width = 30
-
-    def add_to(self, table: WH_Table):
-        # super().add_to(table)
-        # table.add_total_duration(self.duration)
-
-        if self.parent is not None:
+        if section.parent is not None:
             # if there is a parent then this section of the table should have
             # a subsubsection heading rather than a subsection heading
-            table.add_table_sub_head(self.title, subsubhead=True)
+            self.add_table_sub_head(section.title, subsubhead=True)
         else:
-            table.add_table_sub_head(self.title)
+            self.add_table_sub_head(section.title)
 
-        table.extend(self.cells)
-        table.increment_rows(increment_by=self.rows)
-        table.add_total_duration(self.duration)
+        self.xml_element.extend(section.cells)
+        self.increment_rows(increment_by=section.rows)
+        self.add_total_duration(section.duration)
 
-        if self.parent is not None:
-            self.parent.total_duration += self.duration
+        if section.parent is not None:
+            section.parent.total_duration += section.duration
 
-        # excel stuff
-        if self.excel_sheet:
-            sess_tot_cell = Cell(self.excel_sheet, value="Sessional Total")
-            sess_tot_cell.font = BOLD
-            tot_dur_cell = Cell(self.excel_sheet, value=self.duration)  # type: ignore
-            tot_dur_cell.font = BOLD
-
-            totals_row = [None, sess_tot_cell, tot_dur_cell]
-
-            self._add_to_excel(totals_row)
+        # if section.excel_sheet:
+        #     # not sure that this should be here
+        #     section.add_to_excel()
 
 
-class CH_Table(WH_Table):
-    def add_total_duration(
-        self, total_duration: timedelta, aat_total: timedelta  # type: ignore
-    ) -> None:
-
+class Contents_Table(Table):
+    def add_row(self, cells_items: Iterable[CellT]):
         self.increment_rows()
-        total_cell = utils.Body_line_below_right_align()
-        total_cell.text = "Total:"
-
-        time_cell = utils.Body_lines()
-        time_cell.text = format_timedelta(total_duration)
-
-        time_2_cell = utils.Body_lines()
-        time_2_cell.text = format_timedelta(aat_total)
-
-        self.extend(make_id_cells([None]) + [total_cell, time_cell, time_2_cell])
-
-    def add_table_sub_head(self, heading_text: str, subsubhead: bool = False):
-        self.increment_rows()
-        cellstyle = "SubHeading"
-
-        if subsubhead:
-            cellstyle = "SubSubHeading"
-
-        sub_head = SubElement(
-            self,
-            "Cell",
-            attrib={
-                AID + "table": "cell",
-                AID + "ccols": "4",
-                AID5 + "cellstyle": cellstyle,
-            },
-        )
-        sub_head.text = heading_text
+        cells = make_id_cells(cells_items)
+        self.xml_element.extend(cells)
 
 
-class CH_AnalysisTableSection(WH_AnalysisTableSection):
-
-    # create some text for the totals on the contents page
-    # contents_text = ''
-    part_aat = timedelta(seconds=0)
-    table_num_aat = {}
+class Analysis_Table(Table):
+    """class is based on etree.ElementBase
+    name of the xml element will default to the name of the class
+    class can be instantiated despite what type checkers may think"""
 
     def __init__(
-        self, title: str, excel_sheet_title: str, parent: Optional[SudoTableSection]
+        self,
+        list_of_tuples: list[tuple[str, int]],
     ):
-        super().__init__(title, excel_sheet_title, parent)
-        self.after_appointed_time = timedelta(seconds=0)
+        """Takes a list of 2 tuples of table header and cell widths,
+        and a dictionary of key: str, value: TableSection."""
 
-    def add_row(
-        self,  # type: ignore
-        cells_items: Iterable[CellT],
-        duration: timedelta,
-        aat: timedelta,
+        # self.sections_dict = sections
+
+        self.sections: dict[str, AnalysisTableSection] = {}
+
+        super().__init__(list_of_tuples)
+
+    def start_new_section(
+        self,
+        key: str,
+        title: str,
+        excel_sheet_title: str,
+        parent: Optional[SectionParent],
     ):
+        self.sections[key] = AnalysisTableSection(title, excel_sheet_title, parent)
 
-        super().add_row(cells_items, duration=duration)
-        self.after_appointed_time += aat
+    def add_new_sections(
+        self, sects: Sequence[tuple[str, str, str, Optional[SectionParent]]]
+    ):
+        for sec in sects:
+            self.start_new_section(*sec)
 
-    def add_to(self, table: CH_Table):  # type: ignore
-        if self.parent is not None:
-            # if there is a parent then this section of the
-            # table should have a subsubsection heading rather
-            # than a subsection heading
-            table.add_table_sub_head(self.title, subsubhead=True)
-        else:
-            table.add_table_sub_head(self.title)
-        table.extend(self.cells)
-        table.increment_rows(increment_by=self.rows)
-        table.add_total_duration(self.duration, self.after_appointed_time)
-
-        CH_AnalysisTableSection.part_dur += self.duration
-        CH_AnalysisTableSection.part_aat += self.after_appointed_time
-
-        # some sections have parents referenced in the table of contents
-        # these parents also need to have the durations calculated
-        if self.parent is not None:
-            self.parent.total_duration += self.duration
-            self.parent.total_aat += self.after_appointed_time
-
-        # excel stuff
-        if self.excel_sheet:
-            sess_tot_cell = Cell(self.excel_sheet, value="Sessional Total")
-            sess_tot_cell.font = BOLD
-            tot_dur_cell = Cell(self.excel_sheet, value=self.duration)  # type: ignore
-            tot_dur_cell.font = BOLD
-            tot_aat_cell = Cell(self.excel_sheet, value=self.after_appointed_time)  # type: ignore
-            tot_aat_cell.font = BOLD
-
-            totals_row = [None, sess_tot_cell, tot_dur_cell, tot_aat_cell]
-
-            self._add_to_excel(totals_row)
-
-    def _add_to_excel(self, totals_row: list[Optional[Cell]]):
-        if self.excel_sheet:
-            super()._add_to_excel(totals_row)
-            # the chamber is different from WH as it includes an extra col
-            self.excel_sheet["D2"] = "After appointed time"  # extra col head
+    def __getitem__(self, key: str):
+        # at the moment it looks like we need this for typing...
+        return self.sections[key]
 
 
-class WH_Diary_Table(WH_Table):
+class WH_Diary_Table(Table):
+    def __init__(
+        self,
+        list_of_tuples: list[tuple[str, int]],
+    ):
+        super().__init__(list_of_tuples)
+        self.sections: list[WH_DiaryDay_TableSection] = []
+
+        self.session_total_time = timedelta(seconds=0)
+
+    def start_new_section(
+        self,
+        title: str,
+    ):
+        new_section = WH_DiaryDay_TableSection(title)
+        self.sections.append(new_section)
+
+        # also add the session total duration (so far) to the previous
+        # section and add the previous section to the XML
+        if len(self.sections) > 0:
+            self.add_section(self.sections[-1])
+
+        return new_section
 
     # ignoring The Liskov Substitution Principle here as I can't think
     # how else I would do this.
     def add_total_duration(
-        self,  # type: ignore
+        self,
         daily_total_duration: timedelta,
         session_total_duration: timedelta,
     ):
@@ -313,7 +226,7 @@ class WH_Diary_Table(WH_Table):
         time_cell = utils.Body_line_above()
         time_cell.text = format_timedelta(daily_total_duration)
 
-        self.extend([total_cell, time_cell])  # type: ignore
+        self.xml_element.extend([total_cell, time_cell])
 
         self.increment_rows()
         total_cell = utils.Body_line_below_right_align()
@@ -325,41 +238,45 @@ class WH_Diary_Table(WH_Table):
         time_cell.text = format_timedelta(session_total_duration)
         # print(etree.tostring(time_cell), '\n')
 
-        self.extend([total_cell, time_cell])
+        self.xml_element.extend([total_cell, time_cell])
 
-    def add_table_sub_head(self, heading_text: str):  # type: ignore
-        self.increment_rows()
-        sub_head = SubElement(
-            self,
-            "Cell",
-            attrib={
-                AID + "table": "cell",
-                AID + "ccols": "3",
-                AID5 + "cellstyle": "SubHeading No Toc",
-            },
-        )
-        sub_head.text = heading_text
+    def add_table_sub_head(self, heading_text: str):
+        super().add_table_sub_head(heading_text, "SubHeading No Toc")
+
+    def add_section(self, section: WH_DiaryDay_TableSection):
+        """Add a table section to self.xml_element"""
+        self.add_table_sub_head(section.title)
+        self.xml_element.extend(section.cells)
+        self.increment_rows(increment_by=section.rows)
+        self.add_total_duration(section.duration, self.session_total_time)
 
 
-class WH_DiaryDay_TableSection(_TableSection):
-    def __init__(self, title: str):
-        super().__init__(title)
-        self.duration = timedelta(seconds=0)
-
-    def add_row(self, cells: Iterable[CellT], duration: timedelta):  # type: ignore
-        super().add_row(cells)
-        self.duration += duration
-
-    def add_to(
-        self, table: WH_Diary_Table, session_total_time: timedelta  # type: ignore
+class CH_Diary_Table(Table):
+    def __init__(
+        self,
+        list_of_tuples: list[tuple[str, int]],
     ):
-        table.add_table_sub_head(self.title)
-        table.extend(self.cells)
-        table.increment_rows(increment_by=self.rows)
-        table.add_total_duration(self.duration, session_total_time)
+        super().__init__(list_of_tuples)
+        self.sections: list[CH_DiaryDay_TableSection] = []
 
+        self.session_total_time = timedelta(seconds=0)
+        self.session_aat_total = timedelta(seconds=0)
 
-class CH_Diary_Table(WH_Table):
+    def start_new_section(
+        self,
+        title: str,
+    ):
+
+        # also add the session total duration (so far) to the previous
+        # section and add the previous section to the XML
+        if len(self.sections) > 0:
+            self.add_section(self.sections[-1])
+
+        new_section = CH_DiaryDay_TableSection(title)
+        self.sections.append(new_section)
+
+        return new_section
+
     def add_total_duration(
         self,
         daily_total_duration: timedelta,
@@ -379,7 +296,9 @@ class CH_Diary_Table(WH_Table):
         time_2_cell = utils.Body_line_above()
         time_2_cell.text = format_timedelta(daily_aat_total)
 
-        self.extend(make_id_cells([None]) + [total_cell, time_cell, time_2_cell])
+        self.xml_element.extend(
+            make_id_cells([None]) + [total_cell, time_cell, time_2_cell]
+        )
 
         self.increment_rows()
         total_cell = utils.Body_line_below_right_align()
@@ -396,56 +315,100 @@ class CH_Diary_Table(WH_Table):
             time_cell,
             time_2_cell,
         ]
-        self.extend(cells)
+        self.xml_element.extend(cells)
 
     def add_table_sub_head(self, heading_text: str):
-        self.increment_rows()
-        SubElement(
-            self,
-            "Cell",
-            attrib={
-                AID + "table": "cell",
-                AID + "ccols": "4",
-                AID5 + "cellstyle": "SubHeading No Toc",
-            },
-        ).text = heading_text
+        super().add_table_sub_head(heading_text, "SubHeading No Toc")
 
-
-class CH_DiaryDay_TableSection(WH_DiaryDay_TableSection):
-    def __init__(self, title: str):
-        super().__init__(title)
-        self.after_appointed_time = timedelta(seconds=0)
-
-    def add_row(
-        self,  # type: ignore
-        cells: Iterable[CellT],
-        duration: timedelta,
-        aat: timedelta,
-    ):
-        super().add_row(cells, duration)
-        self.after_appointed_time += aat
-
-    def add_to(
-        self,  # type: ignore
-        table: CH_Diary_Table,
-        session_duration: timedelta,
-        session_aat: timedelta,
-    ):
-
-        table.add_table_sub_head(self.title)
-        table.extend(self.cells)
-        table.increment_rows(increment_by=self.rows)
-        table.add_total_duration(
-            self.duration, self.after_appointed_time, session_duration, session_aat
+    def add_section(self, section: CH_DiaryDay_TableSection):
+        """Add a table section to self.xml_element"""
+        self.add_table_sub_head(section.title)
+        # if counters.diary_cells < 3:
+        #     print(f"{section.cells=}")
+        #     counters.diary_cells += 1
+        self.xml_element.extend(section.cells)
+        self.increment_rows(increment_by=section.rows)
+        self.add_total_duration(
+            section.duration,
+            section.after_appointed_time,
+            self.session_total_time,
+            self.session_aat_total,
         )
 
 
-class Contents_Table(WH_Table):
-    # def add_row(self, cells):
-    #     self.increment_rows()
-    #     self.extend(deepcopy(cells))
+def create_contents_xml_element(
+    table: Analysis_Table,
+) -> _Element:
 
-    def add_row(self, cells_items: Iterable[CellT]):
-        self.increment_rows()
-        cells = make_id_cells(cells_items)
-        self.extend(cells)
+    # create XML element for the contents table
+    contents_table: Contents_Table = Contents_Table(
+        [
+            ("Part ", 50),
+            ("Contents", 200),
+            ("Duration", 45),
+            ("After appointed time", 45),
+        ],
+    )
+
+    previous_parents: set[SectionParent] = set()
+    if not isinstance(table.sections, dict):  # type: ignore
+        raise TypeError("Table.sections must either be a list type or dict type")
+    else:
+        sections = table.sections.values()
+
+    for table_section in sections:
+        parent = table_section.parent
+        if parent is not None and parent not in previous_parents:
+            previous_parents.add(parent)
+
+            table_num_dur_formatted = format_timedelta(parent.total_duration)
+            try:
+                table_num_aat_formatted = format_timedelta(parent.total_aat)
+            except AttributeError:
+                table_num_aat_formatted = ""
+
+            table_num: str = ""
+            title: str = ""
+            try:
+                table_num, title = parent.title.split("\t")
+            except ValueError:
+                title = parent.title
+
+            cells = make_id_cells(
+                [
+                    f"{table_num}",
+                    title,
+                    f"{table_num_dur_formatted}",
+                    f"{table_num_aat_formatted}",
+                ],
+                attrib={AID5 + "cellstyle": "RightAlign"},
+            )
+            contents_table.add_row(cells)  # type: ignore
+
+            # we do not want it include tables totals more than once
+            try:
+                if int(table_num) == int(table_section.title.split(":\t")[0]):
+                    continue
+            except Exception:
+                pass
+
+        try:
+            title_num, title = table_section.title.split(":\t")
+        except ValueError:
+            title_num = ""
+            title = table_section.title
+        formatted_dur = format_timedelta(table_section.duration)
+
+        formatted_aat = ""
+        # warn if aa but not enough columns for it
+        if type(table_section) == AnalysisTableSection:
+            table_section = cast(AnalysisTableSection, table_section)  # type: ignore
+            formatted_aat: str = format_timedelta(table_section.after_appointed_time)
+
+        cells = make_id_cells(
+            [f"{title_num}", title, f"{formatted_dur}", f"{formatted_aat}"],
+            attrib={AID5 + "cellstyle": "RightAlign"},
+        )
+        contents_table.add_row(cells)
+
+    return contents_table.xml_element

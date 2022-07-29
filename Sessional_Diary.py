@@ -1,39 +1,44 @@
 #!/usr/bin/env python3
-
 import argparse
-from datetime import date, datetime, timedelta, time
-import os
-import sys
-from typing import Optional, cast
-from typing import Type
-from typing import TypeVar
-from typing import Sequence
 
-# 3rd party imports
-from lxml import etree
-from lxml.etree import Element
+# import os
+import sys
+from datetime import date
+from datetime import datetime
+from datetime import time
+from datetime import timedelta
+from pathlib import Path
+from typing import cast
+from typing import Optional
+from typing import Sequence
+from typing import TypeVar
+
 from lxml.etree import SubElement
-from openpyxl import load_workbook, Workbook
-from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl import load_workbook
+from openpyxl import Workbook
 from openpyxl.cell import cell as CELL
 from openpyxl.cell.cell import Cell
+from openpyxl.worksheet.worksheet import Worksheet
 
-# 1st party imports
-from package.utilities import ID_Cell
-from package.tables import CH_Table, WH_Table
-from package.tables import SudoTableSection
-from package.tables import _TableSection
-from package.tables import CH_Diary_Table, WH_Diary_Table
-from package.tables import CH_DiaryDay_TableSection, WH_DiaryDay_TableSection
-from package.tables import CH_AnalysisTableSection, WH_AnalysisTableSection
-from package.tables import Excel
-from package.tables import Contents_Table
-from package.utilities import make_id_cells, format_timedelta
-from package.utilities import str_strip
+import package.utilities as utils
+from package.tables import CH_Diary_Table
+from package.table_sections import CH_DiaryDay_TableSection
+from package.tables import CH_Diary_Table
+from package.tables import create_contents_xml_element
+from package.utilities import Excel, counters
+from package.table_sections import SectionParent
+from package.tables import Analysis_Table
+from package.tables import WH_Diary_Table
+from package.table_sections import WH_DiaryDay_TableSection
 from package.utilities import format_date
-from package.utilities import AID, AID5, NS_MAP
+from package.utilities import ID_Cell
+from package.utilities import make_id_cells
+from package.utilities import str_strip
+from package.utilities import debug
 
-Table_Type = TypeVar("Table_Type", bound=WH_Table)
+Table_Type = TypeVar("Table_Type", bound=Analysis_Table)
+
+Sections = list[tuple[str, str, str, Optional[SectionParent]]]
 
 
 # override default openpyxl timedelta (duration) format
@@ -68,9 +73,18 @@ WH_SHEET_TITLE = "Westminster Hall"
 
 
 class WHRow:
+    """Converts an openpyxl Excel row into a basic object.
+    Must have title_index setup before first use.
+    Fixes common but minor problems with the sessional diary Excel file.
+    For example the DURATION field is expected to contain a datetime.timedelta
+    but sometime contains either a datetime.datetime or a datetime.time.
+    These are automatically converted."""
+
     title_index: dict[str, int] = {}
 
     def __init__(self, excel_row: Sequence[Cell]):
+
+        # sequence and not Iterable because we use indexes (__getitem__)
         t_index = WHRow.title_index
 
         self.inner_init(excel_row, t_index)
@@ -78,9 +92,11 @@ class WHRow:
     def inner_init(self, excel_row: Sequence[Cell], t_index: dict[str, int]):
 
         if not t_index:
+            # maybe raise here instead
             print("Error: title_index not set up")
             exit()
 
+        # expect an integer in the DAY column (this just counts sittings)
         self.day: int
         _day = excel_row[t_index[DAY]].value
         if isinstance(_day, int):
@@ -89,6 +105,7 @@ class WHRow:
             print(excel_row[t_index[DAY]].coordinate, " has value ", _day)
             raise ValueError
 
+        # expect a date object in the DATE column
         _date = excel_row[t_index[DATE]].value
 
         self.date: date
@@ -98,6 +115,8 @@ class WHRow:
             print(excel_row[t_index[DATE]].coordinate, " has value ", _date)
             raise ValueError
 
+        # expect a time object in the TIME column
+        # (but sometimes it is datetime so convert)
         self.time: time
         time_cell = excel_row[t_index[TIME]]
         _time = time_cell.value
@@ -110,9 +129,7 @@ class WHRow:
 
         if isinstance(self.time, datetime):
             time_obj = self.time.time()
-            print(
-                f"There is a datetime at cell {time_cell.coordinate}:", str(self.time)
-            )
+            print(f"There is a datetime at cell {time_cell.coordinate}: {self.time}")
             print(f"This has been converted to the following time: {time_obj}")
             self.time = time_obj
 
@@ -122,6 +139,8 @@ class WHRow:
 
         self.tags = str_strip(excel_row[t_index[TAGS]].value)
 
+        # expect timedelata in DURATION col
+        # can also be datetime or time so try to convert
         duration_cell = excel_row[t_index[DURATION]]
         self.duration: timedelta
         if isinstance(duration_cell.value, datetime):
@@ -142,6 +161,12 @@ class WHRow:
             # print(f'Problem in cell {duration_cell.coordinate}')
             self.duration = timedelta()
 
+    def __str__(self):
+        return (
+            f"{self.day=} {self.date=} {self.time} {self.subject1=} "
+            f"{self.subject2=} {self.tags=} {self.duration=}"
+        )
+
 
 class CHRow(WHRow):
     title_index: dict[str, int] = {}
@@ -161,8 +186,10 @@ class CHRow(WHRow):
                 str(aat_cell.value),
             )
             print(f"This has been converted to the following time: {time_obj}")
+            # get timedelta
             self.aat = datetime.combine(date.min, time_obj) - datetime.min
         elif isinstance(aat_cell.value, time):
+            # get timedelta
             self.aat = datetime.combine(date.min, aat_cell.value) - datetime.min
         elif not isinstance(aat_cell.value, timedelta):
             self.aat = timedelta()
@@ -171,7 +198,7 @@ class CHRow(WHRow):
 class Sessional_Diary:
     def __init__(self, input_excel_file_path: str, no_excel: bool):
 
-        self.input_workbook = load_workbook(
+        self.input_workbook: Workbook = load_workbook(
             filename=input_excel_file_path, data_only=True, read_only=True
         )
 
@@ -223,41 +250,35 @@ class Sessional_Diary:
                 sep="\n",
             )
 
-    def house_diary(self, output_folder_path: str = ""):
-        """Create an (indesign formatted) XML file for the house diary section of
-        the Sessional diary."""
+    def house_diary(self, output_folder_Path: Path):
+        """Create an (indesign formatted) XML file for the house diary
+        section of the Sessional diary."""
+
+        output_file_Path = output_folder_Path.joinpath("House_Diary.xml")
 
         self.check_chamber()
 
         cmbr_data = cast(Worksheet, self.input_workbook[CH_SHEET_TITLE])
 
-        session_total_time = timedelta(seconds=0)
-        # day_total_time          = timedelta(seconds=0)
-        session_total_after_moi = timedelta(seconds=0)
-        # day_total_after_moi     = timedelta(seconds=0)
-
-        table_sections: list[CH_DiaryDay_TableSection] = []
-
-        # day_number_counter = 0
-
-        table_ele: CH_Diary_Table = id_table(
+        table_ele = CH_Diary_Table(
             [
                 ("Time", 35),
                 ("Subject", 355),
                 # ('Exit', 45),
                 ("Duration", 45),
                 ("After appointed time", 45),
-            ],
-            table_class=CH_Diary_Table,
+            ]
         )
 
         previous_day = 1
+
+        section = CH_DiaryDay_TableSection("This section should not be outputted")
 
         for c, excel_row in enumerate(cmbr_data.iter_rows(), start=1):
             if c == 1:
                 continue
 
-            if all(not v.value for v in excel_row[:10]):
+            if all(not cell.value for cell in excel_row[:10]):
                 # skip over any blank rows
                 continue
 
@@ -268,35 +289,28 @@ class Sessional_Diary:
                 continue
 
             if c == 2:
-                table_sections.append(
-                    CH_DiaryDay_TableSection(
-                        f'{entry.day}.\u2002{entry.date.strftime("%A %d %B %Y")}'
-                    )
+                # create the first day section (to be added later to the diary table)
+                section_title = (
+                    f'{entry.day}.\u2002{entry.date.strftime("%A %d %B %Y")}'
                 )
+                section = table_ele.start_new_section(section_title)
 
             if entry.day != previous_day:
                 previous_day = entry.day
 
-                # day_total_time = timedelta()
-                # day_total_after_moi = timedelta()
-
-                table_sections[-1].add_to(
-                    table_ele, session_total_time, session_total_after_moi
+                new_section_title = (
+                    f'{entry.day}.\u2002{entry.date.strftime("%A %d %B %Y")}'
                 )
-
-                table_sections.append(
-                    CH_DiaryDay_TableSection(
-                        f'{entry.day}.\u2002{entry.date.strftime("%A %d %B %Y")}'
-                    )
-                )
+                section = table_ele.start_new_section(new_section_title)
 
                 # add the date and number to the lookup.
                 # this is so this info can also be put in the WH table
                 DATE_NUM_LOOK_UP[entry.date] = entry.day
 
             # need to add up all the durations
-            session_total_time += entry.duration
-            session_total_after_moi += entry.aat
+            table_ele.session_total_time += entry.duration
+            # table_ele.session_total_after_moi += entry.aat
+            table_ele.session_aat_total += entry.aat
 
             # there will be 4 cells per row
             cell = ID_Cell()
@@ -314,194 +328,255 @@ class Sessional_Diary:
             if aat == timedelta(seconds=0):
                 aat = ""
 
-            table_sections[-1].add_row(
+            section.add_row(
                 [entry.time.strftime("%H.%M"), cell, duration, aat],
                 duration=entry.duration,
                 aat=entry.aat,
             )
 
         # need to add the last table section
-        if len(table_sections) > 0:
-            table_sections[-1].add_to(
-                table_ele, session_total_time, session_total_after_moi
-            )
+        table_ele.add_section(section)
+        # if counters.section < 3:
+        #     print(f"section={str(section)}")
+        #     counters.section += 1
 
         # now output XML (for InDesign) file
-        output_root = Element("root")  # create root element
-        output_root.append(table_ele)
-        output_tree = etree.ElementTree(output_root)
-        output_tree.write(
-            os.path.join(output_folder_path, "House_Diary.xml"),
-            encoding="UTF-8",
-            xml_declaration=True,
-        )
+        utils.write_xml(table_ele.xml_element, output_file_Path)
 
-    def house_analysis(self, output_folder_path: str = ""):
+    def house_analysis(self, output_folder_Path: Path):
+
+        output_file_Path = output_folder_Path.joinpath("House_An_Contents.xml")
 
         # we're only interested in the main data here
-        main_data = self.input_workbook[CH_SHEET_TITLE]
+        main_data = cast(Worksheet, self.input_workbook[CH_SHEET_TITLE])
 
         # add heading elements to table
-        table_ele: CH_Table = id_table(
+        table_ele = Analysis_Table(
             [("Date", 95), ("", 295), ("Duration", 45), ("After appointed time", 45)],
-            table_class=CH_Table,
         )
 
         # parents
         # some tables have a parent e.g. 2 is the parent of 2a and 2b
         # parents are only referenced in the table of contents
-        parent_2 = SudoTableSection("2:\tGovernment bills")
-        parent_3 = SudoTableSection("3:\tPrivate Members’ bills")
-        parent_5 = SudoTableSection("5:\tGovernment motions")
-        parent_6 = SudoTableSection("6:\tOpposition business")
-        parent_8 = SudoTableSection("8:\tPrivate Members’ business (other than bills)")
-        parent_14 = SudoTableSection("14:\tBusiness when no Question before House")
+        p_2 = SectionParent("2:\tGovernment bills")
+        p_3 = SectionParent("3:\tPrivate Members’ bills")
+        p_5 = SectionParent("5:\tGovernment motions")
+        p_6 = SectionParent("6:\tOpposition business")
+        p_8 = SectionParent("8:\tPrivate Members’ business (other than bills)")
+        p_14 = SectionParent("14:\tBusiness when no Question before House")
 
-        t_sections: dict[str, CH_AnalysisTableSection] = {
+        table_ele.start_new_section(
+            "addresses",
+            "1:\tAddresses other than Prayers",
+            "1 Addresses other than Prayers",
+            None,
+        )
+
+        # define the sub subsections
+        # list of 4-tuples
+        #   Item 1: key (used for access)
+        #   Item 2: Title of the section for Indesign
+        #   Item 3: Title of the section in Excel
+        #   Item 4: parent (or none if this section will be top level)
+        sections: Sections = [
             # the order matters!
-            "addresses": CH_AnalysisTableSection(
-                "1:\tAddresses other than Prayers",
-                "1 Addresses other than Prayers",
-                None,
+            (
+                "addresses",  # key
+                "1:\tAddresses other than Prayers",  # title in Indesign
+                "1 Addresses other than Prayers",  # title in Excel
+                None,  # parent (None if top level)
             ),
-            "second_readings": CH_AnalysisTableSection(
+            (
+                "second_readings",
                 "2a:\tGovernment Bills: Read a second time and committed to Public Bill Committee",
                 "2a Govt Bills 2R & committed",
-                parent_2,
+                p_2,
             ),
-            "cwh_bills": CH_AnalysisTableSection(
+            (
+                "cwh_bills",
                 "2b:\tGovernment Bills: Read a second time and committed to "
                 "Committee of the whole House (in whole or part)",
                 "2b Govt Bill 2R & sent to CWH",
-                parent_2,
+                p_2,
             ),
-            "cwh_2_bills": CH_AnalysisTableSection(
+            (
+                "cwh_2_bills",
                 "2d:\tGovernment Bills: Committee of the whole House",
                 "2d Govt Bills CWH",
-                parent_2,
+                p_2,
             ),
-            "gov_bil_cons": CH_AnalysisTableSection(
+            (
+                "gov_bil_cons",
                 "2e:\tGovernment Bills: Consideration",
                 "2e Govt Bills Consideration",
-                parent_2,
+                p_2,
             ),
-            "gov_bill_3rd": CH_AnalysisTableSection(
-                "2f:\tGovernment Bills: Third Reading", "2f Govt Bills 3R", parent_2
+            (
+                "gov_bill_3rd",
+                "2f:\tGovernment Bills: Third Reading",
+                "2f Govt Bills 3R",
+                p_2,
             ),
-            "gov_bill_lord_amend": CH_AnalysisTableSection(
+            (
+                "gov_bill_lord_amend",
                 "2g:\tGovernment Bills: Lord Amendments",
                 "2g Lords Amendments",
-                parent_2,
+                p_2,
             ),
-            "alloc_time": CH_AnalysisTableSection(
+            (
+                "alloc_time",
                 "2h:\tAllocation of time motions",
                 "2h Allocation of time motions",
-                parent_2,
+                p_2,
             ),
-            "gov_bill_other": CH_AnalysisTableSection(
+            (
+                "gov_bill_other",
                 "2i:\tGovernment Bills: Other Stages",
                 "2i Govt Bills Other Stages",
-                parent_2,
+                p_2,
             ),
-            "pmbs_2r": CH_AnalysisTableSection(
-                "3a:\tPrivate Members' Bills: Second Reading", "3a PMB 2R", parent_3
+            (
+                "pmbs_2r",
+                "3a:\tPrivate Members' Bills: Second Reading",
+                "3a PMB 2R",
+                p_3,
             ),
-            "pmbs_other": CH_AnalysisTableSection(
+            (
+                "pmbs_other",
                 "3b:\tPrivate Members' Bills: Other Stages",
                 "3b PMB Other stages",
-                parent_3,
+                p_3,
             ),
-            "private_business": CH_AnalysisTableSection(
-                "4:\tPrivate Business", "4 Private Business", None
+            ("private_business", "4:\tPrivate Business", "4 Private Business", None),
+            (
+                "eu_docs",
+                "5a:\tEuropean Union documents",
+                "5a European Union documents",
+                p_5,
             ),
-            "eu_docs": CH_AnalysisTableSection(
-                "5a:\tEuropean Union documents", "5a European Union documents", parent_5
+            (
+                "gov_motions",
+                "5b:\tGovernment motions",
+                "5b Government motions",
+                p_5,
             ),
-            "gov_motions": CH_AnalysisTableSection(
-                "5b:\tGovernment motions", "5b Government motions", parent_5
-            ),
-            "gov_motions_gen": CH_AnalysisTableSection(
+            (
+                "gov_motions_gen",
                 "5c:\tGovernment motions (General)",
                 "5c Govt motions (General)",
-                parent_5,
+                p_5,
             ),
-            "gen_debates": CH_AnalysisTableSection(
+            (
+                "gen_debates",
                 "5d:\tGovernment motions (General Debates)",
                 "5d Govt motions (Gen Debates)",
-                parent_5,
+                p_5,
             ),
-            "opposition_days": CH_AnalysisTableSection(
-                "6a:\tOpposition Days", "6a Opposition Days", parent_6
-            ),
-            "oppo_motions_in_gov_time": CH_AnalysisTableSection(
+            ("opposition_days", "6a:\tOpposition Days", "6a Opposition Days", p_6),
+            (
+                "oppo_motions_in_gov_time",
                 "6b:\tOpposition motions in Government time",
                 "6b Opp Motion in Govt time",
-                parent_6,
+                p_6,
             ),
-            "backbench_business": CH_AnalysisTableSection(
-                "7: \tBackbench Business", "7 Backbench Business", None
+            (
+                "backbench_business",
+                "7: \tBackbench Business",
+                "7 Backbench Business",
+                None,
             ),
-            "pm_motion": CH_AnalysisTableSection(
-                "8a:\tPrivate Members' Motions", "8a Private Members' Motions", parent_8
+            (
+                "pm_motion",
+                "8a:\tPrivate Members' Motions",
+                "8a Private Members' Motions",
+                p_8,
             ),
-            "ten_min_motion": CH_AnalysisTableSection(
-                "8b:\tTen Minute Rule Motions", "8b Ten minute rules", parent_8
+            (
+                "ten_min_motion",
+                "8b:\tTen Minute Rule Motions",
+                "8b Ten minute rules",
+                p_8,
             ),
-            "emergency_debates": CH_AnalysisTableSection(
-                "8c:\tEmergency debates", "8c Emergency debates", parent_8
+            (
+                "emergency_debates",
+                "8c:\tEmergency debates",
+                "8c Emergency debates",
+                p_8,
             ),
-            "adjournment_debates": CH_AnalysisTableSection(
-                "8d:\tAdjournment debates", "8d Adjournment debates", parent_8
+            (
+                "adjournment_debates",
+                "8d:\tAdjournment debates",
+                "8d Adjournment debates",
+                p_8,
             ),
-            "estimates": CH_AnalysisTableSection("9:\tEstimates", "9 Estimates", None),
-            "money": CH_AnalysisTableSection(
-                "10:\tMoney Resolutions", "10 Money Resolutions", None
+            ("estimates", "9:\tEstimates", "9 Estimates", None),
+            ("money", "10:\tMoney Resolutions", "10 Money Resolutions", None),
+            ("ways_and_means", "11:\tWays and Means", "11 Ways and Means", None),
+            (
+                "affirmative_sis",
+                "12:\tAffirmative Statutory Instruments",
+                "12 Affirmative SIs",
+                None,
             ),
-            "ways_and_means": CH_AnalysisTableSection(
-                "11:\tWays and Means", "11 Ways and Means", None
+            (
+                "negative_sis",
+                "13:\tNegative Statutory Instruments",
+                "13 Negative SIs",
+                None,
             ),
-            "affirmative_sis": CH_AnalysisTableSection(
-                "12:\tAffirmative Statutory Instruments", "12 Affirmative SIs", None
+            ("questions", "14a:\tQuestions", "14a Questions", p_14),
+            (
+                "topical_questions",
+                "14b:\tTopical Questions",
+                "14b Topical Questions",
+                p_14,
             ),
-            "negative_sis": CH_AnalysisTableSection(
-                "13:\tNegative Statutory Instruments", "13 Negative SIs", None
+            (
+                "urgent_questions",
+                "14c:\tUrgent Questions",
+                "14c Urgent Questions",
+                p_14,
             ),
-            "questions": CH_AnalysisTableSection(
-                "14a:\tQuestions", "14a Questions", parent_14
+            ("statements", "14d:\tStatements", "14d Statements", p_14),
+            (
+                "business_statements",
+                "14e:\tBusiness Statements",
+                "14e Business Statements",
+                p_14,
             ),
-            "topical_questions": CH_AnalysisTableSection(
-                "14b:\tTopical Questions", "14b Topical Questions", parent_14
+            (
+                "committee_statements",
+                "14f:\tCommittee Statements",
+                "14f Committee Statements",
+                p_14,
             ),
-            "urgent_questions": CH_AnalysisTableSection(
-                "14c:\tUrgent Questions", "14c Urgent Questions", parent_14
+            (
+                "app_for_emerg_debate",
+                "14g:\tS.O. No. 24 Applications",
+                "14g SO No 24 Applications",
+                p_14,
             ),
-            "statements": CH_AnalysisTableSection(
-                "14d:\tStatements", "14d Statements", parent_14
+            (
+                "points_of_order",
+                "14h:\tPoints of Order",
+                "14h Points of Order",
+                p_14,
             ),
-            "business_statements": CH_AnalysisTableSection(
-                "14e:\tBusiness Statements", "14e Business Statements", parent_14
+            (
+                "public_petitions",
+                "14i:\tPublic Petitions",
+                "14i Public Petitions",
+                p_14,
             ),
-            "committee_statements": CH_AnalysisTableSection(
-                "14f:\tCommittee Statements", "14f Committee Statements", parent_14
-            ),
-            "app_for_emerg_debate": CH_AnalysisTableSection(
-                "14g:\tS.O. No. 24 Applications", "14g SO No 24 Applications", parent_14
-            ),
-            "points_of_order": CH_AnalysisTableSection(
-                "14h:\tPoints of Order", "14h Points of Order", parent_14
-            ),
-            "public_petitions": CH_AnalysisTableSection(
-                "14i:\tPublic Petitions", "14i Public Petitions", parent_14
-            ),
-            "miscellaneous": CH_AnalysisTableSection(
-                "14j:\tMiscellaneous", "14j Miscellaneous", parent_14
-            ),
-            "prayers": CH_AnalysisTableSection(
-                "15:\tDaily Prayers", "15 Daily Prayers", None
-            ),
-        }
+            ("miscellaneous", "14j:\tMiscellaneous", "14j Miscellaneous", p_14),
+            ("prayers", "15:\tDaily Prayers", "15 Daily Prayers", None),
+        ]
 
-        for c, excel_row in enumerate(main_data.iter_rows(), start=1):  # type: ignore
+        table_ele.add_new_sections(sections)
+
+        # ------------------- loop over excel data ------------------- #
+
+        for c, excel_row in enumerate(main_data.iter_rows(), start=1):
 
             if c == 1:
                 # top row just has headings in
@@ -529,25 +604,25 @@ class Sessional_Diary:
 
             # Table 1 Addresses other than Prayers
             if subject_lower == "address":
-                t_sections["addresses"].add_row(*fullrow)
+                table_ele["addresses"].add_row(*fullrow)
             # Table 2a Government bills second reading
             if "[pmb]" not in col_exit:
                 # here we have items that are not explicitly private members' bills
                 if subject_lower == "second reading" and "pbc" in col_exit:
                     # gov bill second reading
-                    t_sections["second_readings"].add_row(*fullrow)
+                    table_ele["second_readings"].add_row(*fullrow)
 
                 if "committee of the whole house" in subject_lower:
-                    t_sections["cwh_2_bills"].add_row(*fullrow)
+                    table_ele["cwh_2_bills"].add_row(*fullrow)
                 if "consideration" in subject_lower:
                     # gov bill consideration
-                    t_sections["gov_bil_cons"].add_row(*fullrow)
+                    table_ele["gov_bil_cons"].add_row(*fullrow)
                 if subject_lower == "third reading":
                     # gov bill third reading
-                    t_sections["gov_bill_3rd"].add_row(*fullrow)
+                    table_ele["gov_bill_3rd"].add_row(*fullrow)
                 if subject_lower == "lords amendments":
                     # gov bill lords amendments
-                    t_sections["gov_bill_lord_amend"].add_row(*fullrow)
+                    table_ele["gov_bill_lord_amend"].add_row(*fullrow)
                 gov_bill_other_subs = (
                     "second and third reading",
                     "money resolution",
@@ -557,21 +632,21 @@ class Sessional_Diary:
                     "legislative grand committee" in subject_lower
                     or subject_lower in gov_bill_other_subs
                 ):
-                    t_sections["gov_bill_other"].add_row(*fullrow)
+                    table_ele["gov_bill_other"].add_row(*fullrow)
 
             if (
                 subject_lower == "second reading"
                 and "committee of the whole house" in entry.subject2.lower()
             ):
-                t_sections["cwh_bills"].add_row(*fullrow)
+                table_ele["cwh_bills"].add_row(*fullrow)
 
             if subject_lower.lower() in ("general debate", "general motion"):
-                t_sections["alloc_time"].add_row(*fullrow)
+                table_ele["alloc_time"].add_row(*fullrow)
 
             if "[pmb]" in col_exit:
                 if subject_lower == "second reading":
                     # private members' bills second reading
-                    t_sections["pmbs_2r"].add_row(*fullrow)
+                    table_ele["pmbs_2r"].add_row(*fullrow)
                 elif subject_lower not in (
                     "ten minute rule motion",
                     "point of order",
@@ -579,79 +654,79 @@ class Sessional_Diary:
                 ):
                     # private members' bills other
                     # this does not include ten minute rules
-                    t_sections["pmbs_other"].add_row(*fullrow)
+                    table_ele["pmbs_other"].add_row(*fullrow)
 
             if "private business" in subject_lower:
-                t_sections["private_business"].add_row(*fullrow)
+                table_ele["private_business"].add_row(*fullrow)
 
             if subject_lower == "eu documents":
-                t_sections["eu_docs"].add_row(*fullrow)
+                table_ele["eu_docs"].add_row(*fullrow)
 
             if subject_lower in (
                 "government motion",
                 "government motions",
                 "business motion",
             ):
-                t_sections["gov_motions"].add_row(*fullrow)
+                table_ele["gov_motions"].add_row(*fullrow)
 
             if subject_lower in ("general motion"):
-                t_sections["gov_motions_gen"].add_row(*fullrow)
+                table_ele["gov_motions_gen"].add_row(*fullrow)
 
             if subject_lower == "general debate":
-                t_sections["gen_debates"].add_row(*fullrow)
+                table_ele["gen_debates"].add_row(*fullrow)
 
             if subject_lower == "opposition day":
-                t_sections["opposition_days"].add_row(*fullrow)
+                table_ele["opposition_days"].add_row(*fullrow)
 
             if subject_lower == "opposition motion in government time":
-                t_sections["oppo_motions_in_gov_time"].add_row(*fullrow)
+                table_ele["oppo_motions_in_gov_time"].add_row(*fullrow)
             if subject_lower == "backbench business":
-                t_sections["backbench_business"].add_row(*fullrow)
+                table_ele["backbench_business"].add_row(*fullrow)
             if subject_lower in (
                 "private member's motion",
                 "private member’s motion",
                 "private members' motion",
             ):
-                t_sections["pm_motion"].add_row(*fullrow)
+                table_ele["pm_motion"].add_row(*fullrow)
             if subject_lower == "ten minute rule motion":
-                t_sections["ten_min_motion"].add_row(*fullrow)
+                table_ele["ten_min_motion"].add_row(*fullrow)
             if "no. 24 debate" in subject_lower:
-                t_sections["emergency_debates"].add_row(*fullrow)
+                table_ele["emergency_debates"].add_row(*fullrow)
             if "adjournment" in subject_lower:
-                t_sections["adjournment_debates"].add_row(*fullrow)
+                table_ele["adjournment_debates"].add_row(*fullrow)
             if subject_lower == "estimates day":
-                t_sections["estimates"].add_row(*fullrow)
+                table_ele["estimates"].add_row(*fullrow)
             if subject_lower == "money resolution":
-                t_sections["money"].add_row(*fullrow)
+                table_ele["money"].add_row(*fullrow)
             if subject_lower == "ways and means":
-                t_sections["ways_and_means"].add_row(*fullrow)
+                table_ele["ways_and_means"].add_row(*fullrow)
             if "affirmative" in subject_lower:
-                t_sections["affirmative_sis"].add_row(*fullrow)
+                table_ele["affirmative_sis"].add_row(*fullrow)
             if subject_lower == "negative statutory instrument":
-                t_sections["negative_sis"].add_row(*fullrow)
+                table_ele["negative_sis"].add_row(*fullrow)
             if subject_lower == "questions":
-                t_sections["questions"].add_row(*fullrow)
+                table_ele["questions"].add_row(*fullrow)
             if subject_lower == "topical questions":
-                t_sections["topical_questions"].add_row(*fullrow)
+                table_ele["topical_questions"].add_row(*fullrow)
             if subject_lower in ("urgent question", "urgent questions"):
-                t_sections["urgent_questions"].add_row(*fullrow)
+                table_ele["urgent_questions"].add_row(*fullrow)
             if subject_lower == "statement":
-                t_sections["statements"].add_row(*fullrow)
+                table_ele["statements"].add_row(*fullrow)
             if subject_lower == "business statement":
-                t_sections["business_statements"].add_row(*fullrow)
+                table_ele["business_statements"].add_row(*fullrow)
             if "committee statement" in subject_lower:
-                t_sections["committee_statements"].add_row(*fullrow)
+                table_ele["committee_statements"].add_row(*fullrow)
             if "no. 24 application" in subject_lower:
-                t_sections["app_for_emerg_debate"].add_row(*fullrow)
+                table_ele["app_for_emerg_debate"].add_row(*fullrow)
             if subject_lower in ("point of order", "points of order"):
-                t_sections["points_of_order"].add_row(*fullrow)
+                table_ele["points_of_order"].add_row(*fullrow)
             if "public petition" in subject_lower:
-                t_sections["public_petitions"].add_row(*fullrow)
+                table_ele["public_petitions"].add_row(*fullrow)
             if subject_lower == "prayers":
                 # prayers are not itemised
-                # t_sections['prayers'].add_row(*fullrow)
-                t_sections["prayers"].duration += entry.duration
-                t_sections["prayers"].after_appointed_time += entry.aat
+                # table_ele['prayers'].add_row(*fullrow)
+                table_ele["prayers"].duration += entry.duration
+                table_ele["prayers"].after_appointed_time += entry.aat
 
             miscellaneous_options = (
                 "tributes",
@@ -673,13 +748,13 @@ class Sessional_Diary:
                     entry.duration,
                     entry.aat,
                 ]
-                t_sections["miscellaneous"].add_row(
+                table_ele["miscellaneous"].add_row(
                     misc_cells, entry.duration, entry.aat
                 )
 
-        previous_table_sec_parent: Optional[SudoTableSection] = None
+        previous_table_sec_parent: Optional[SectionParent] = None
 
-        for table_section in t_sections.values():
+        for table_section in table_ele.sections.values():
             if table_section.parent != previous_table_sec_parent:
                 # if there is a section with a new parent we will put a
                 # new subhead row into the table This will probably
@@ -693,45 +768,32 @@ class Sessional_Diary:
 
             if "daily prayers" in table_section.title.lower():
                 # Daily prayers is left blank on purpose and still needs to be added
-                table_section.add_to(table_ele)
+                table_ele.add_section(table_section)
             elif len(table_section) > 0:
-                table_section.add_to(table_ele)
+                table_ele.add_section(table_section)
             else:
                 # add empty table sections but put nil in.
-                cells_vals = [
-                    "Nil",
-                    "",
-                    "",
-                    "",
-                ]
+                cells_vals = ["Nil", "", "", ""]
                 table_section.add_row(cells_vals, timedelta(), timedelta())
-                table_section.add_to(table_ele)
+                table_ele.add_section(table_section)
 
         # now create XML for InDesign
         # create root element
-        output_root = Element("root")
-        output_root.append(table_ele)
-        output_tree = etree.ElementTree(output_root)
-        output_tree.write(
-            os.path.join(output_folder_path, "House_Analysis.xml"),
-            encoding="UTF-8",
-            xml_declaration=True,
+        utils.write_xml(
+            table_ele.xml_element, output_folder_Path.joinpath("House_Analysis.xml")
         )
 
-        self.create_contents(
-            t_sections,
-            os.path.join(output_folder_path, "House_An_Contents.xml"),
-            CH_AnalysisTableSection.part_dur,
-            CH_AnalysisTableSection.part_aat,
-        )
+        contents_xml = create_contents_xml_element(table_ele)
+        utils.write_xml(contents_xml, output_file_Path)
 
-    def wh_diary(self, output_folder_path: str = ""):
+    def wh_diary(self, output_folder_Path: Path):
+
+        output_file_Path = output_folder_Path.joinpath("WH_diary.xml")
 
         self.check_wh()
 
-        table_ele: WH_Diary_Table = id_table(
+        table_ele = WH_Diary_Table(
             [("Time", 35), ("Subject", 400), ("Duration", 45)],
-            table_class=WH_Diary_Table,
         )
 
         if len(DATE_NUM_LOOK_UP) == 0:
@@ -743,15 +805,13 @@ class Sessional_Diary:
 
         wh_data = cast(Worksheet, self.input_workbook[WH_SHEET_TITLE])
 
-        session_total_time = timedelta(seconds=0)
-
-        table_sections: list[WH_DiaryDay_TableSection] = []
-
         previous_day = 1
 
-        for c, excel_row in enumerate(wh_data.iter_rows()):
+        section = WH_DiaryDay_TableSection("This section should not be outputted")
 
-            if c == 0:
+        for c, excel_row in enumerate(wh_data.iter_rows(), start=1):
+
+            if c == 1:
                 continue
 
             try:
@@ -759,25 +819,27 @@ class Sessional_Diary:
             except (ValueError, AttributeError):
                 continue
 
-            if c == 1:
+            if c == 2:
                 chamber_daynum = DATE_NUM_LOOK_UP.get(entry.date, "")
                 sec_title = (
                     f"{entry.day}.\u2002[{chamber_daynum}]"
                     f'\u2002{entry.date.strftime("%A %d %B %Y")}'
                 )
-                table_sections.append(WH_DiaryDay_TableSection(sec_title))
+                section = table_ele.start_new_section(sec_title)
+                # table_sections.append(WH_DiaryDay_TableSection(sec_title))
 
             if entry.day != previous_day:
                 previous_day = entry.day
 
-                table_sections[-1].add_to(table_ele, session_total_time)
+                # table_ele.add_section(table_sections[-1], session_total_time)
+                # table_sections[-1].add_to(table_ele, session_total_time)
 
                 # if the chamber diary has already been created the global
-                # dictionary, `DATE_NUM_LOOK_UP` will have been populated
-                # with datetime.date objs as the keys and Integers as values
-                # if the chamber diary has not already been created or
-                # if westminster hall sat on a day where the chamber did not
-                # sit, we may have empty square brackets.
+                # dictionary, `DATE_NUM_LOOK_UP` will have been populated  with
+                # datetime.date objs as the keys and Integers as values. If the
+                # chamber diary has not already been created or if westminster
+                # hall sat on a day where the chamber did not sit, we may have
+                # empty square brackets.
                 chamber_daynum = DATE_NUM_LOOK_UP.get(entry.date, "")
 
                 sec_title = (
@@ -785,10 +847,11 @@ class Sessional_Diary:
                     f'\u2002{entry.date.strftime("%A %d %B %Y")}'
                 )
 
-                table_sections.append(WH_DiaryDay_TableSection(sec_title))
+                section = table_ele.start_new_section(sec_title)
+                # table_sections.append(WH_DiaryDay_TableSection(sec_title))
 
             # need to add up all the durations
-            session_total_time += entry.duration
+            table_ele.session_total_time += entry.duration
 
             # there will be 3 cells per row
             cell = ID_Cell()
@@ -799,64 +862,56 @@ class Sessional_Diary:
                     bold.tail = f": {entry.subject2}"
                 cells = make_id_cells(
                     [entry.time.strftime("%H.%M"), cell, entry.duration]
-                )  # type: ignore
-                table_sections[-1].add_row(cells, entry.duration)
+                )
+                section.add_row(cells, entry.duration)
 
         # last table section will not have been added in the above loop
-        table_sections[-1].add_to(table_ele, session_total_time)
+        table_ele.add_section(section)
+        # table_sections[-1].add_to(table_ele, session_total_time)
 
-        # Create XML for InDesign
-        output_root = Element("root")
-        output_root.append(table_ele)
-        tree = etree.ElementTree(output_root)
-        tree.write(
-            os.path.join(output_folder_path, "WH_diary.xml"),
-            encoding="UTF-8",
-            xml_declaration=True,
-        )
+        # now output the XML for InDesign
 
-    def wh_analysis(self, output_folder_path: str = ""):
+        utils.write_xml(table_ele.xml_element, output_file_Path)
+
+    def wh_analysis(self, output_folder_Path: Path):
+
+        output_file_Path = output_folder_Path.joinpath("WH_Analysis.xml")
 
         wh_data = cast(Worksheet, self.input_workbook["Westminster Hall"])
 
-        # add a new table element with headings
-        table_ele: WH_Table = id_table(
-            [("Date", 95), ("Detail", 340), ("Duration", 45)], table_class=WH_Table
+        table_ele = Analysis_Table(  # new table element with headings
+            [("Date", 95), ("Detail", 340), ("Duration", 45)],
         )
 
         # parents
-        parent_1 = SudoTableSection("1:\tPrivate Members")
+        p_1 = SectionParent("1:\tPrivate Members")
 
-        # can now use dict (rather than ordered dict) as order is guaranteed
-        t_sections: dict[str, WH_AnalysisTableSection] = {
+        sections: Sections = [
             # the order matters!
-            "private": WH_AnalysisTableSection(
-                "1a:\tPrivate Members’ Debates", "WH1 Members debates", parent_1
-            ),
-            "bbcom": WH_AnalysisTableSection(
+            ("private", "1a:\tPrivate Members’ Debates", "WH1 Members debates", p_1),
+            (
+                "bbcom",
                 "1b:\tPrivate Members’ (Backbench Business Committee recommended) Debates",
                 "WH2 BBCom debates",
-                parent_1,
+                p_1,
             ),
-            "liaison": WH_AnalysisTableSection(
-                "2:\tLiaison Committee Debates", "WH3 Liaison Com debates", None
+            (
+                "liaison",
+                "2:\tLiaison Committee Debates",
+                "WH3 Liaison Com debates",
+                None,
             ),
-            "e_petition": WH_AnalysisTableSection(
-                "3:\tDebates on e-Petitions", "WH4 e-Petitions", None
-            ),
-            "suspension": WH_AnalysisTableSection(
-                "4:\tSuspensions", "WH5 Suspensions", None
-            ),
-            "miscellaneous": WH_AnalysisTableSection(
-                "5:\tMiscellaneous", "WH6 Miscellaneous", None
-            ),
-            "statements": WH_AnalysisTableSection(
-                "6:\tStatements", "WH7 Statements", None
-            ),
-        }
+            ("e_petition", "3:\tDebates on e-Petitions", "WH4 e-Petitions", None),
+            ("suspension", "4:\tSuspensions", "WH5 Suspensions", None),
+            ("miscellaneous", "5:\tMiscellaneous", "WH6 Miscellaneous", None),
+            ("statements", "6:\tStatements", "WH7 Statements", None),
+        ]
 
-        for c, excel_row in enumerate(wh_data.iter_rows()):
-            if c == 0:
+        table_ele.add_new_sections(sections)
+
+        for c, excel_row in enumerate(wh_data.iter_rows(), start=1):
+            if c == 1:  # note start=1
+                # skip first row
                 continue
 
             if all(bool(v) is False for v in excel_row[:8]):
@@ -866,6 +921,7 @@ class Sessional_Diary:
             try:
                 entry = WHRow(excel_row)
             except (ValueError, AttributeError):
+                print(f"WH Skipping row: {excel_row}")
                 continue
 
             forematted_date = format_date(entry.date)
@@ -876,183 +932,73 @@ class Sessional_Diary:
                 entry.duration,
             ]
             fullrow = (cells_vals, entry.duration)
+
+            # logic to determin in which sections entries go
             if entry.subject1 in (
                 "Debate (Private Member’s)",
                 "Debate (Private Member's)",
             ):
-                t_sections["private"].add_row(*fullrow)
+                table_ele["private"].add_row(*fullrow)
+
             elif entry.subject1 in (
                 "Debate (BBCom recommended)",
                 "Debate (BBCom)",
                 "Debate (BBBCom)",
             ):
-                t_sections["bbcom"].add_row(*fullrow)
+                table_ele["bbcom"].add_row(*fullrow)
 
             elif entry.subject1 in ("Debate (Liaison Committee)",):
-                t_sections["liaison"].add_row(*fullrow)
+                table_ele["liaison"].add_row(*fullrow)
 
             elif entry.subject1 in ("Petition", "Petitions"):
-                t_sections["e_petition"].add_row(*fullrow)
+                table_ele["e_petition"].add_row(*fullrow)
 
             elif entry.subject1 == "Suspension" and entry.tags not in (
                 "[Questions]",
                 "[Question]",
             ):
-                t_sections["suspension"].add_row(*fullrow)
+                table_ele["suspension"].add_row(*fullrow)
 
             elif entry.subject1 in ("Committee Statement",):
-                t_sections["statements"].add_row(*fullrow)
+                table_ele["statements"].add_row(*fullrow)
+
             elif entry.subject1 in (
                 "Time limit",
                 "Time Limit",
                 "Observation of a period of silence",
             ):
-                t_sections["miscellaneous"].add_row(*fullrow)
+                table_ele["miscellaneous"].add_row(*fullrow)
+            else:
+                # print(f"WH entry in column {c} not added to any Analysis section")
+                # print(str(entry))
+                pass
 
         previous_table_sec_parent = None
-        for table_section in t_sections.values():
+        for table_section in table_ele.sections.values():
             if table_section.parent != previous_table_sec_parent:
                 # if there is a section with a new parent we will put a
                 # new subhead row into the table This will probably
                 # make logical sense in the table and will definitely
-                # make it easier to genareate teh table of contents
+                # make it easier to genareate the table of contents
                 # in InDesign
                 previous_table_sec_parent = table_section.parent
                 if table_section.parent is not None:
                     # add a sub head row
                     table_ele.add_table_sub_head(table_section.parent.title)
             if len(table_section) > 0:
-                table_section.add_to(table_ele)
+                table_ele.add_section(table_section)
             else:
                 # adding empty table sections but put nil in.
-                cells_vals = [
-                    "Nil",
-                    "",
-                    "",
-                ]
+                cells_vals = ["Nil", "", ""]
                 table_section.add_row(cells_vals, timedelta())
-                table_section.add_to(table_ele)
+                table_ele.add_section(table_section)
 
         # create XML for indesign
-        output_root = Element("root")
-        output_root.append(table_ele)
-        tree = etree.ElementTree(output_root)
-        tree.write(
-            os.path.join(output_folder_path, "WH_Analysis.xml"),
-            encoding="UTF-8",
-            xml_declaration=True,
-        )
+        utils.write_xml(table_ele.xml_element, output_file_Path)
 
-        self.create_contents(
-            t_sections,
-            os.path.join(output_folder_path, "WH_An_Contents.xml"),
-            WH_AnalysisTableSection.part_dur,
-            None,
-        )
-
-    def create_contents(
-        self,
-        table_sections: dict[str, WH_AnalysisTableSection | CH_AnalysisTableSection],
-        output_file_path: str,
-        part_dur: timedelta,
-        part_aat: Optional[timedelta],
-    ):
-
-        # create XML element for the contents table
-        contents_table: Contents_Table = id_table(
-            [
-                ("Part ", 50),
-                ("Contents", 200),
-                ("Duration", 45),
-                ("After appointed time", 45),
-            ],
-            table_class=Contents_Table,
-        )
-
-        # I'm not sure we need the part information because I'm not sure it is meaningful
-        # especially for the Chamber
-        # if part_aat:
-        #     part_aat_str = format_timedelta(part_aat)
-        # else:
-        #     part_aat_str = ''
-        # cells = make_id_cells(['Part II',
-        #                        '',
-        #                        format_timedelta(part_dur),
-        #                        part_aat_str],
-        #                       attrib={AID5 + 'cellstyle': 'RightAlign'})
-        # contents_table.add_row(cells)
-
-        previous_parents: set[_TableSection] = set()
-        for table_section in table_sections.values():
-            if (
-                table_section.parent is not None
-                and table_section.parent not in previous_parents
-            ):
-                previous_parents.add(table_section.parent)
-
-                table_num_dur_formatted = format_timedelta(
-                    table_section.parent.total_duration
-                )
-                try:
-                    table_num_aat_formatted = format_timedelta(
-                        table_section.parent.total_aat
-                    )
-                except AttributeError:
-                    table_num_aat_formatted = ""
-
-                table_num: str = ""
-                title: str = ""
-                try:
-                    table_num, title = table_section.parent.title.split("\t")
-                except Exception:
-                    title = table_section.parent.title
-                cells = make_id_cells(
-                    [
-                        f"{table_num}",
-                        title,
-                        f"{table_num_dur_formatted}",
-                        f"{table_num_aat_formatted}",
-                    ],
-                    attrib={AID5 + "cellstyle": "RightAlign"},
-                )
-                contents_table.add_row(cells)  # type: ignore
-
-                # we do not want it include tables totals more than once
-                try:
-                    if int(table_num) == int(table_section.title.split(":\t")[0]):
-                        continue
-                except Exception:
-                    pass
-
-            try:
-                title_num, title = table_section.title.split(":\t")
-            except Exception:
-                title_num = ""
-                title = table_section.title
-            formatted_dur = format_timedelta(table_section.duration)
-            # try:
-            #     formatted_aat: str = format_timedelta(table_section.after_appointed_time)
-            # except AttributeError:
-            #     formatted_aat = ""
-            formatted_aat = ""
-            if type(table_section) == CH_AnalysisTableSection:
-                table_section = cast(CH_AnalysisTableSection, table_section)
-                formatted_aat: str = format_timedelta(
-                    table_section.after_appointed_time
-                )
-            # text += f'\n\t{title_number}\t{formatted_dur}\t{formatted_aat}'
-            cells = make_id_cells(
-                [f"{title_num}", title, f"{formatted_dur}", f"{formatted_aat}"],
-                attrib={AID5 + "cellstyle": "RightAlign"},
-            )
-            contents_table.add_row(cells)  # type: ignore
-
-        # print(text)
-        output_root = Element("root")
-        output_root.append(contents_table)
-        etree.ElementTree(output_root).write(
-            output_file_path, encoding="UTF-8", xml_declaration=True
-        )
+        # create XML for contents for InDesign
+        contents_xml = create_contents_xml_element(table_ele)
+        utils.write_xml(contents_xml, output_folder_Path.joinpath("WH_An_Contents.xml"))
 
 
 def main():
@@ -1086,7 +1032,16 @@ def main():
             "rather than both sections",
         )
 
+        parser.add_argument(
+            "--debug",
+            action="store_true",
+            help="Export indented xml to aid debugging ",
+        )
+
         args = parser.parse_args(sys.argv[1:])
+
+        if args.debug:
+            debug.debug = True
 
         if args.include_only == "chamber":
             run(args.input.name, include_wh=False, no_excel=args.no_excel)
@@ -1110,64 +1065,66 @@ def run(
     no_excel: bool = False,
 ):
 
-    if not output_folder_path:
-        output_folder_path = os.path.dirname(excel_file_path)
+    if output_folder_path:
+        output_folder_Path = Path(output_folder_path)
+    else:
+        output_folder_Path = Path(excel_file_path).parent
 
     sessional_diary = Sessional_Diary(excel_file_path, no_excel)
 
     if include_chamber:
         # create house diary
-        sessional_diary.house_diary(output_folder_path)
+        sessional_diary.house_diary(output_folder_Path)
 
         # create house analysis
-        sessional_diary.house_analysis(output_folder_path)
+        sessional_diary.house_analysis(output_folder_Path)
 
     if include_wh:
         # crete Westminster hall diary
-        sessional_diary.wh_diary(output_folder_path)
+        sessional_diary.wh_diary(output_folder_Path)
 
         # create Westminster hall analysis
-        sessional_diary.wh_analysis(output_folder_path)
+        sessional_diary.wh_analysis(output_folder_Path)
 
     # remove the default sheet
     if Excel.out_wb is not None:
         del Excel.out_wb["Sheet"]
-        Excel.out_wb.save(filename=os.path.join(output_folder_path, "Analysis.xlsx"))
+        Excel.out_wb.save(filename=str(output_folder_Path.joinpath("Analysis.xlsx")))
 
 
-def id_table(
-    list_of_tuples: list[tuple[str, int]], table_class: Type[Table_Type]
-) -> Table_Type:
-    """Takes a list of 2 tuples of table header and cell widths"""
+# def id_table(
+#     list_of_tuples: list[tuple[str, int]], table_class: Type[Table_Type]
+# ) -> Table_Type:
+#     """Takes a list of 2 tuples of table header and cell widths"""
 
-    # table element
-    # the table_class is based on etree.ElementBase
-    # name of the xml element will default to the name of the class
-    table_ele: Table_Type
-    table_ele = table_class(  # type: ignore
-        nsmap=NS_MAP,
-        attrib={
-            AID + "table": "table",
-            AID + "tcols": str(len(list_of_tuples)),
-            AID5 + "tablestyle": "Part1Table",
-        },
-    )
-    table_ele.increment_rows()
+#     # table element
+#     # the table_class is based on etree.ElementBase
+#     # name of the xml element will default to the name of the class
+#     table_ele: Table_Type
+#     table_ele = table_class(  # type: ignore
+#         nsmap=NS_MAP,
+#         attrib={
+#             AID + "table": "table",
+#             AID + "tcols": str(len(list_of_tuples)),
+#             AID5 + "tablestyle": "Part1Table",
+#         },
+#     )
+#     table_ele.increment_rows()
 
-    # add heading elements to table
-    for item in list_of_tuples:
-        heading = SubElement(
-            table_ele,
-            "Cell",
-            attrib={
-                AID + "table": "cell",
-                AID + "theader": "",
-                AID + "ccolwidth": str(item[1]),
-            },
-        )
-        heading.text = item[0]
+#     # add heading elements to table
+#     for item in list_of_tuples:
+#         heading = SubElement(
+#             table_ele,
+#             "Cell",
+#             attrib={
+#                 AID + "table": "cell",
+#                 AID + "theader": "",
+#                 AID + "ccolwidth": str(item[1]),
+#             },
+#         )
+#         heading.text = item[0]
 
-    return table_ele
+#     return table_ele
 
 
 if __name__ == "__main__":
