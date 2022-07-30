@@ -37,6 +37,7 @@ class counters:
     diary_cells = 0
     tables_abc_add_row = 0
     section = 0
+    add_section = 0
 
 
 # exporting to excel is optional
@@ -49,53 +50,49 @@ class Excel:
 id_cell = Element("Cell", attrib={AID + "table": "cell"})
 
 
-def ID_Cell() -> _Element:
+def ID_Cell(cellstyle: Optional[str] = None) -> _Element:
     """Create a XML cell Element for InDesign"""
-    return deepcopy(id_cell)
+
+    cell = deepcopy(id_cell)
+
+    if cellstyle:
+        cell.set(AID5 + "cellstyle", cellstyle)
+
+    return cell
 
 
 def Right_align_cell() -> _Element:
     """Create a XML cell Element with the RightAlign cellstyle applied."""
 
-    cell = ID_Cell()
-    cell.set(AID5 + "cellstyle", "RightAlign")
-    return cell
+    return ID_Cell("RightAlign")
 
 
 def Body_line_below_right_align() -> _Element:
     """Create a XML cell Element with the
     BodyLineBelowRightAlign cellstyle applied."""
 
-    cell = ID_Cell()
-    cell.set(AID5 + "cellstyle", "BodyLineBelowRightAlign")
-    return cell
+    return ID_Cell("BodyLineBelowRightAlign")
 
 
 def Body_line_below() -> _Element:
     """Create a XML cell Element with the
     BodyLineBelow cellstyle applied."""
 
-    cell = ID_Cell()
-    cell.set(AID5 + "cellstyle", "BodyLineBelow")
-    return cell
+    return ID_Cell("BodyLineBelow")
 
 
 def Body_line_above() -> _Element:
     """Create a XML cell Element with the
     BodyLineAbove cellstyle applied."""
 
-    cell = ID_Cell()
-    cell.set(AID5 + "cellstyle", "BodyLineAbove")
-    return cell
+    return ID_Cell("BodyLineAbove")
 
 
 def Body_lines() -> _Element:
     """Create a XML cell Element with the
     BodyLines cellstyle applied."""
 
-    cell = ID_Cell()
-    cell.set(AID5 + "cellstyle", "BodyLines")
-    return cell
+    return ID_Cell("BodyLines")
 
 
 def make_id_cells(
@@ -144,16 +141,6 @@ def format_date(date_containing_item: Union[datetime, date, str]):
             # TODO: log this
             print("print")
             print(date_containing_item)
-
-
-# def timedelta_from_time(t: time, default=timedelta(seconds=0)):
-#     try:
-#         return datetime.combine(date.min, t) - datetime.min
-#     except TypeError as e:
-#         if t != '':
-#             print(f'{t=}')
-#             print(e)
-#         return default
 
 
 def str_strip(input: Any) -> str:
