@@ -1,36 +1,26 @@
 #!/usr/bin/env python3
 
 import argparse
-from datetime import date, datetime, timedelta, time
 import os
 import sys
-from typing import Optional, cast
-from typing import Type
-from typing import Sequence
+from datetime import date, datetime, time, timedelta
+from typing import Optional, Sequence, Type, cast
 
 # 3rd party imports
 from lxml import etree
-from lxml.etree import Element
-from lxml.etree import SubElement
-from openpyxl import load_workbook, Workbook
-from openpyxl.worksheet.worksheet import Worksheet
+from lxml.etree import Element, SubElement
+from openpyxl import Workbook, load_workbook
 from openpyxl.cell import cell as CELL
 from openpyxl.cell.cell import Cell
+from openpyxl.worksheet.worksheet import Worksheet
 
+from package.tables import (CH_AnalysisTableSection, CH_Diary_Table,
+                            CH_DiaryDay_TableSection, CH_Table, Contents_Table,
+                            Excel, SudoTableSection, WH_AnalysisTableSection,
+                            WH_Diary_Table, WH_DiaryDay_TableSection, WH_Table)
 # 1st party imports
-from package.utilities import ID_Cell
-from package.tables import CH_Table, WH_Table
-from package.tables import SudoTableSection
-from package.tables import CH_Diary_Table, WH_Diary_Table
-from package.tables import CH_DiaryDay_TableSection, WH_DiaryDay_TableSection
-from package.tables import CH_AnalysisTableSection, WH_AnalysisTableSection
-from package.tables import Excel
-from package.tables import Contents_Table
-from package.utilities import make_id_cells, format_timedelta
-from package.utilities import str_strip
-from package.utilities import format_date
-from package.utilities import AID, AID5, NS_MAP
-
+from package.utilities import (AID, AID5, NS_MAP, ID_Cell, format_date,
+                               format_timedelta, make_id_cells, str_strip)
 
 # override default openpyxl timedelta (duration) format
 CELL.TIME_FORMATS[timedelta] = '[h].mm'
@@ -547,9 +537,12 @@ class Sessional_Diary:
                 if subject_lower == 'lords amendments':
                     # gov bill lords amendments
                     t_sections['gov_bill_lord_amend'].add_row(*fullrow)
-                gov_bill_other_subs = ('second and third reading',
-                                       'money resolution',
-                                       'lords amendments')
+                gov_bill_other_subs = (
+                    'second and third reading',  # not in subject list (Sep 2024)
+                    'money resolution',  # not in subject list (Sep 2024)
+                    'lords amendments',
+                    'other stages'  # added in Sep 2024 (Sara ELKHAWAD)
+                )
                 if ('legislative grand committee' in subject_lower
                         or subject_lower in gov_bill_other_subs):
                     t_sections['gov_bill_other'].add_row(*fullrow)
@@ -565,8 +558,12 @@ class Sessional_Diary:
                 if subject_lower == 'second reading':
                     # private members' bills second reading
                     t_sections['pmbs_2r'].add_row(*fullrow)
-                elif subject_lower not in ('ten minute rule motion',
-                                           'point of order', 'remaining orders'):
+                elif subject_lower not in (
+                    'ten minute rule motion',
+                    'point of order',
+                    'remaining orders',
+                    'other stages'  # added in Sep 2024 (Sara ELKHAWAD)
+                ):
                     # private members' bills other
                     # this does not include ten minute rules
                     t_sections['pmbs_other'].add_row(*fullrow)
@@ -949,7 +946,7 @@ class Sessional_Diary:
 
                 # we do not want it include tables totals more than once
                 try:
-                    if(table_num == int(table_section.title.split(":\t")[0])):
+                    if table_num == int(table_section.title.split(":\t")[0]):
                         continue
                 except Exception:
                     pass
