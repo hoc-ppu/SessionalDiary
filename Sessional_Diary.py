@@ -562,10 +562,10 @@ class Sessional_Diary:
                     'ten minute rule motion',
                     'point of order',
                     'remaining orders',
-                    'other stages'  # added in Sep 2024 (Sara ELKHAWAD)
                 ):
                     # private members' bills other
                     # this does not include ten minute rules
+                    # Explicitly this is `other stages`
                     t_sections['pmbs_other'].add_row(*fullrow)
 
             if 'private business' in subject_lower:
@@ -763,7 +763,11 @@ class Sessional_Diary:
                 table_sections[-1].add_row(cells, entry.duration)
 
         # last table section will not have been added in the above loop
-        table_sections[-1].add_to(table_ele, session_total_time)
+        # so add it below
+        if len(table_sections) > 0:
+            # if the westminster Hall section is empty we will not need to add it
+            table_sections[-1].add_to(table_ele, session_total_time)
+
 
 
         # Create XML for InDesign
