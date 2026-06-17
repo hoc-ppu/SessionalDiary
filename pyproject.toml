@@ -1,0 +1,39 @@
+[project]
+name = "sessional_diary"
+description = "Create House of Commons Sessional Diaries from the official Excel file."
+license = "BSD-2-Clause"
+license-files = ["LICENSE"]
+dependencies = [
+    "openpyxl",
+    "lxml",
+]
+requires-python = ">=3.11"
+
+dynamic = ["version"]
+
+# these are entry points for the command line
+[project.scripts]
+sessional_diary = "sessional_diary.cli:main"
+gui = "sessional_diary.cli:gui_main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/sessional_diary/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sessional_diary"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "types-lxml",
+]

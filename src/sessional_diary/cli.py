@@ -14,13 +14,31 @@ from openpyxl.cell import cell as CELL
 from openpyxl.cell.cell import Cell
 from openpyxl.worksheet.worksheet import Worksheet
 
-from package.tables import (CH_AnalysisTableSection, CH_Diary_Table,
-                            CH_DiaryDay_TableSection, CH_Table, Contents_Table,
-                            Excel, SudoTableSection, WH_AnalysisTableSection,
-                            WH_Diary_Table, WH_DiaryDay_TableSection, WH_Table)
+from sessional_diary.tables import (
+    CH_AnalysisTableSection,
+    CH_Diary_Table,
+    CH_DiaryDay_TableSection,
+    CH_Table,
+    Contents_Table,
+    Excel,
+    SudoTableSection,
+    WH_AnalysisTableSection,
+    WH_Diary_Table,
+    WH_DiaryDay_TableSection,
+    WH_Table,
+)
+
 # 1st party imports
-from package.utilities import (AID, AID5, NS_MAP, ID_Cell, format_date,
-                               format_timedelta, make_id_cells, str_strip)
+from sessional_diary.utilities import (
+    AID,
+    AID5,
+    NS_MAP,
+    ID_Cell,
+    format_date,
+    format_timedelta,
+    make_id_cells,
+    str_strip,
+)
 
 # override default openpyxl timedelta (duration) format
 CELL.TIME_FORMATS[timedelta] = '[h].mm'
@@ -220,6 +238,8 @@ class Sessional_Diary:
 
         table_sections = []
 
+        total_days: int = 0
+
         # day_number_counter = 0
 
         table_ele = id_table(
@@ -248,6 +268,13 @@ class Sessional_Diary:
             if c == 2:
                 table_sections.append(CH_DiaryDay_TableSection(
                     f'{entry.day}.\u2002{entry.date.strftime("%A %d %B %Y")}'))
+
+            if entry.day > total_days:
+                # For calculating the average duration of sitting days we need
+                # the total number of days. This should be the last entry.day
+                # but we can't just look as the last row in cambr_data because
+                # there can be blank rows at the end of the sheet.
+                total_days = entry.day
 
 
             if entry.day != previous_day:
@@ -301,6 +328,17 @@ class Sessional_Diary:
         output_tree = etree.ElementTree(output_root)
         output_tree.write(os.path.join(output_folder_path, 'House_Diary.xml'),
                           encoding='UTF-8', xml_declaration=True)
+
+        # calculate the average duration of sitting days
+        if total_days > 0:
+            avg_duration = session_total_time / total_days
+            avg_after_moi = session_total_after_moi / total_days
+        else:
+            avg_duration = timedelta()
+            avg_after_moi = timedelta()
+
+        print(f'Average duration of sitting days: {format_timedelta(avg_duration)}')
+        print(f'Average duration after appointed time: {format_timedelta(avg_after_moi)}')
 
     def house_analysis(self, output_folder_path: str = ''):
 
@@ -374,21 +412,24 @@ class Sessional_Diary:
                 '4:\tPrivate Business',
                 '4 Private Business',
                 None),
-            'eu_docs': CH_AnalysisTableSection(
-                '5a:\tEuropean Union documents',
-                '5a European Union documents',
-                parent_5),
+
+            # George says that European Union documents are no longer needed 2026-06-17
+            # 'eu_docs': CH_AnalysisTableSection(
+            #     '5a:\tEuropean Union documents',
+            #     '5a European Union documents',
+            #     parent_5),
             'gov_motions': CH_AnalysisTableSection(
-                '5b:\tGovernment motions',
-                '5b Government motions',
+                '5a:\tGovernment motions',
+                '5a Government motions',
                 parent_5),
-            'gov_motions_gen': CH_AnalysisTableSection(
-                '5c:\tGovernment motions (General)',
-                '5c Govt motions (General)',
-                parent_5),
+            # George says that these are no longer needed 2026-06-17
+            # 'gov_motions_gen': CH_AnalysisTableSection(
+            #     '5c:\tGovernment motions (General)',
+            #     '5c Govt motions (General)',
+            #     parent_5),
             'gen_debates': CH_AnalysisTableSection(
-                '5d:\tGovernment motions (General Debates)',
-                '5d Govt motions (Gen Debates)',
+                '5b:\tGovernment motions (General Debates)',
+                '5b Govt motions (Gen Debates)',
                 parent_5),
             'opposition_days': CH_AnalysisTableSection(
                 '6a:\tOpposition Days',
@@ -540,7 +581,7 @@ class Sessional_Diary:
                 gov_bill_other_subs = (
                     'second and third reading',  # not in subject list (Sep 2024)
                     'money resolution',  # not in subject list (Sep 2024)
-                    'lords amendments',
+                    # 'lords amendments',  # removed on Tuesday, 16  June 2026
                     'other stages'  # added in Sep 2024 (Sara ELKHAWAD)
                 )
                 if ('legislative grand committee' in subject_lower
@@ -551,7 +592,7 @@ class Sessional_Diary:
                     and 'committee of the whole house' in entry.subject2.lower()):
                 t_sections['cwh_bills'].add_row(*fullrow)
 
-            if subject_lower.lower() in ('general debate', 'general motion'):
+            if subject_lower.lower() == 'allocation of time motion':
                 t_sections['alloc_time'].add_row(*fullrow)
 
             if '[pmb]' in col_exit:
@@ -571,14 +612,16 @@ class Sessional_Diary:
             if 'private business' in subject_lower:
                 t_sections['private_business'].add_row(*fullrow)
 
-            if subject_lower == 'eu documents':
-                t_sections['eu_docs'].add_row(*fullrow)
+            # if subject_lower == 'eu documents':
+                # George says that European Union documents are no longer needed 2026-06-17
+                # t_sections['eu_docs'].add_row(*fullrow)
 
             if subject_lower in ('government motion', 'government motions', 'business motion'):
                 t_sections['gov_motions'].add_row(*fullrow)
 
-            if subject_lower in ('general motion'):
-                t_sections['gov_motions_gen'].add_row(*fullrow)
+            # George says that these are no longer needed 2026-06-17
+            # if subject_lower == 'general motion':
+            #     t_sections['gov_motions_gen'].add_row(*fullrow)
 
             if subject_lower == 'general debate':
                 t_sections['gen_debates'].add_row(*fullrow)
@@ -980,6 +1023,9 @@ class Sessional_Diary:
         etree.ElementTree(output_root).write(output_file_path,
                                              encoding='UTF-8', xml_declaration=True)
 
+def gui_main():
+    from sessional_diary import gui
+    gui.mainloop(run_callback=run)
 
 def main():
 
@@ -1014,7 +1060,7 @@ def main():
 
     else:
         # run the GUI version
-        from package import gui
+        from sessional_diary import gui
         gui.mainloop(run_callback=run)
 
 
@@ -1027,21 +1073,21 @@ def run(excel_file_path: str,
     if not output_folder_path:
         output_folder_path = os.path.dirname(excel_file_path)
 
-    sessional_diary = Sessional_Diary(excel_file_path, no_excel)
+    sd = Sessional_Diary(excel_file_path, no_excel)
 
     if include_chamber:
         # create house diary
-        sessional_diary.house_diary(output_folder_path)
+        sd.house_diary(output_folder_path)
 
         # create house analysis
-        sessional_diary.house_analysis(output_folder_path)
+        sd.house_analysis(output_folder_path)
 
     if include_wh:
         # crete Westminster hall diary
-        sessional_diary.wh_diary(output_folder_path)
+        sd.wh_diary(output_folder_path)
 
         # create Westminster hall analysis
-        sessional_diary.wh_analysis(output_folder_path)
+        sd.wh_analysis(output_folder_path)
 
     # remove the default sheet
     if Excel.out_wb is not None:

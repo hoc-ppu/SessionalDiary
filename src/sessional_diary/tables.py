@@ -1,17 +1,15 @@
 from datetime import timedelta
 from typing import Iterable, Optional, cast
 
-from openpyxl.cell import Cell
-from openpyxl.styles import Font
-from openpyxl import Workbook
-from openpyxl.worksheet.worksheet import Worksheet
 from lxml import etree
 from lxml.etree import SubElement
+from openpyxl import Workbook
+from openpyxl.cell import Cell
+from openpyxl.styles import Font
+from openpyxl.worksheet.worksheet import Worksheet
 
-import package.utilities as utils
-from package.utilities import AID, AID5
-from package.utilities import make_id_cells
-from package.utilities import format_timedelta
+import sessional_diary.utilities as utils
+from sessional_diary.utilities import AID, AID5, format_timedelta, make_id_cells
 
 BOLD = Font(bold=True)
 
